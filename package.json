@@ -1,0 +1,13 @@
+{
+  "name": "morpheus-ai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MorpheusAI - Ansible template & workflow standart uyum analiz arayüzü",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node scripts/smoke-test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

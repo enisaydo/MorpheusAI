@@ -1,0 +1,10 @@
+.git
+.github
+node_modules
+deploy
+scripts
+*.md
+.env
+.env.*
+Dockerfile
+docker-compose.yml

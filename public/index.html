@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MorpheusAI</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <canvas id="rain" aria-hidden="true"></canvas>
+
+  <div class="app">
+    <!-- ============ SIDEBAR ============ -->
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-mark">
+          <span class="pill red"></span><span class="pill blue"></span>
+        </div>
+        <div>
+          <div class="brand-name">Morpheus<span>AI</span></div>
+          <div class="brand-sub">Ansible Uyum Denetçisi</div>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <a href="#/dashboard" data-route="dashboard"><i>◈</i> Komuta Merkezi</a>
+        <a href="#/template" data-route="template"><i>⌘</i> Template Analizi</a>
+        <a href="#/workflow" data-route="workflow"><i>⟁</i> Workflow Analizi</a>
+        <a href="#/oracle" data-route="oracle"><i>◉</i> Morpheus'a Sor</a>
+        <a href="#/standards" data-route="standards"><i>☰</i> Standartlar</a>
+        <a href="#/settings" data-route="settings"><i>⚙</i> Ayarlar</a>
+      </nav>
+
+      <div class="sidebar-foot">
+        <div class="conn" id="connStatus"><span class="dot"></span><span class="label">Bağlanıyor…</span></div>
+        <blockquote class="quote" id="quote"></blockquote>
+      </div>
+    </aside>
+
+    <!-- ============ MAIN ============ -->
+    <main class="main">
+      <header class="topbar">
+        <button class="icon-btn menu-btn" id="menuBtn" aria-label="Menü">☰</button>
+        <div class="crumbs" id="crumbs">Komuta Merkezi</div>
+        <div class="topbar-right">
+          <button class="btn ghost sm" id="rainToggle" title="Matrix efektini aç/kapat">◫ Matrix</button>
+          <span class="mode-badge" id="modeBadge">DEMO</span>
+        </div>
+      </header>
+
+      <!-- ---------- DASHBOARD ---------- -->
+      <section class="view" data-view="dashboard">
+        <div class="hero">
+          <div class="hero-text">
+            <p class="eyebrow mono">&gt; wake up, operator_</p>
+            <h1>Template'lerinin gerçeğini görmeye hazır mısın?</h1>
+            <p class="muted">Morpheus, Ansible Job Template ve Workflow'larını kurumsal standartlarınıza göre tarar; eksikleri, riskleri ve düzeltmeleri gösterir.</p>
+            <div class="hero-actions">
+              <a class="btn red" href="#/template"><span class="pill-ico red"></span> Kırmızı Hap · Template Analizi</a>
+              <a class="btn blue" href="#/workflow"><span class="pill-ico blue"></span> Mavi Hap · Workflow Analizi</a>
+            </div>
+          </div>
+          <div class="hero-gauge" id="heroGauge"></div>
+        </div>
+
+        <div class="kpis" id="kpis"></div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head">
+              <h3>Job Template'ler</h3>
+              <span class="muted sm">AWX / AAP</span>
+            </div>
+            <div class="table-wrap"><table class="table" id="tplTable"></table></div>
+          </div>
+          <div class="card">
+            <div class="card-head">
+              <h3>Workflow'lar</h3>
+              <span class="muted sm">Akış uyumu</span>
+            </div>
+            <div class="table-wrap"><table class="table" id="wfTable"></table></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- TEMPLATE ---------- -->
+      <section class="view" data-view="template">
+        <div class="split">
+          <div class="card editor-card">
+            <div class="card-head">
+              <h3>Template Girdisi</h3>
+              <div class="row gap-sm">
+                <select id="tplSelect" class="input sm"><option value="">AWX'ten seç…</option></select>
+                <label class="btn ghost sm">⇪ Dosya<input type="file" id="tplFile" accept=".yml,.yaml,.txt" hidden /></label>
+                <button class="btn ghost sm" id="tplClear">Temizle</button>
+              </div>
+            </div>
+            <div class="editor">
+              <pre class="gutter" id="tplGutter">1</pre>
+              <textarea id="tplInput" spellcheck="false" placeholder="# Ansible playbook / template YAML içeriğini buraya yapıştır…"></textarea>
+            </div>
+            <div class="rule-bar">
+              <div class="muted sm">Uygulanacak kurallar</div>
+              <div class="chips" id="tplRules"></div>
+            </div>
+            <div class="prompt-bar">
+              <input id="tplPrompt" class="input" placeholder="Ek talimat (opsiyonel) — ör. 'Güvenlik bulgularına odaklan'" />
+              <button class="btn primary" id="tplAnalyze">▶ Analiz Et</button>
+            </div>
+          </div>
+
+          <div class="card result-card" id="tplResult">
+            <div class="empty">
+              <div class="empty-ico">⌘</div>
+              <p>Bir template yükle ve <b>Analiz Et</b>'e bas.</p>
+              <p class="muted sm">Morpheus standart ihlallerini, eksik bölümleri ve düzeltme önerilerini burada gösterecek.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- WORKFLOW ---------- -->
+      <section class="view" data-view="workflow">
+        <div class="card">
+          <div class="card-head">
+            <h3>Workflow Akışı</h3>
+            <div class="row gap-sm">
+              <select id="wfSelect" class="input sm"><option value="">Workflow seç…</option></select>
+              <button class="btn ghost sm" id="wfJsonToggle">{ } JSON</button>
+              <button class="btn primary sm" id="wfAnalyze">▶ Akışı Analiz Et</button>
+            </div>
+          </div>
+          <div class="wf-legend">
+            <span><i class="lg success"></i>success</span>
+            <span><i class="lg failure"></i>failure</span>
+            <span><i class="lg always"></i>always</span>
+            <span class="sep"></span>
+            <span><i class="nt job"></i>job</span>
+            <span><i class="nt approval"></i>approval</span>
+            <span><i class="nt project_sync"></i>project sync</span>
+            <span><i class="nt inventory_sync"></i>inventory sync</span>
+            <span><i class="nt notification"></i>bildirim</span>
+          </div>
+          <div class="wf-canvas" id="wfCanvas">
+            <div class="empty"><div class="empty-ico">⟁</div><p>Görselleştirmek için bir workflow seç.</p></div>
+          </div>
+          <div class="wf-json hidden" id="wfJsonWrap">
+            <textarea id="wfJson" class="code-input" spellcheck="false"></textarea>
+            <div class="row gap-sm end"><button class="btn ghost sm" id="wfJsonApply">Diyagramı güncelle</button></div>
+          </div>
+        </div>
+        <div class="card result-card" id="wfResult"></div>
+      </section>
+
+      <!-- ---------- ORACLE / CHAT ---------- -->
+      <section class="view" data-view="oracle">
+        <div class="chat card">
+          <div class="chat-log" id="chatLog"></div>
+          <div class="chat-suggest" id="chatSuggest"></div>
+          <form class="chat-input" id="chatForm">
+            <label class="ctx-toggle" title="Son analiz sonucunu bağlam olarak gönder">
+              <input type="checkbox" id="chatCtx" checked /> <span>Son analizi bağlam olarak ekle</span>
+            </label>
+            <div class="chat-row">
+              <textarea id="chatText" rows="1" placeholder="Morpheus'a sor… (Shift+Enter yeni satır)"></textarea>
+              <button class="btn primary" type="submit">Gönder ➤</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <!-- ---------- STANDARDS ---------- -->
+      <section class="view" data-view="standards">
+        <div class="card">
+          <div class="card-head">
+            <h3>Kurumsal Standartlar</h3>
+            <div class="row gap-sm">
+              <div class="seg" id="stdScope">
+                <button data-scope="all" class="on">Tümü</button>
+                <button data-scope="template">Template</button>
+                <button data-scope="workflow">Workflow</button>
+              </div>
+              <input id="stdSearch" class="input sm" placeholder="Kural ara…" />
+              <button class="btn primary sm" id="stdAdd">+ Kural</button>
+            </div>
+          </div>
+          <div id="stdList"></div>
+        </div>
+      </section>
+
+      <!-- ---------- SETTINGS ---------- -->
+      <section class="view" data-view="settings">
+        <div class="card narrow">
+          <div class="card-head"><h3>AI Backend Bağlantısı</h3></div>
+          <form id="settingsForm" class="form">
+            <label>API Base URL
+              <input class="input" name="apiBase" placeholder="/api" />
+              <small>Varsayılan <code>/api</code> — yerel sunucu. Sunucuyu <code>AI_BACKEND_URL</code> ile başlatırsanız istekler oraya proxy'lenir.</small>
+            </label>
+            <label>API Anahtarı
+              <input class="input" name="apiKey" type="password" placeholder="sk-…" autocomplete="off" />
+              <small>Varsa <code>Authorization: Bearer</code> başlığı olarak gönderilir. Tarayıcıda saklanır.</small>
+            </label>
+            <label>Model
+              <input class="input" name="model" placeholder="ör. morpheus-analyzer-v1" />
+            </label>
+            <label>Sistem Promptu
+              <textarea class="input" name="systemPrompt" rows="5"></textarea>
+              <small>Chat ve analiz isteklerine <code>systemPrompt</code> alanı olarak eklenir.</small>
+            </label>
+            <div class="row gap-sm">
+              <button class="btn primary" type="submit">Kaydet</button>
+              <button class="btn ghost" type="button" id="testConn">Bağlantıyı Test Et</button>
+              <span class="muted sm" id="settingsMsg"></span>
+            </div>
+          </form>
+        </div>
+        <div class="card narrow">
+          <div class="card-head"><h3>API Sözleşmesi</h3><span class="muted sm">Backend ekibi için</span></div>
+          <pre class="contract" id="contract"></pre>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Modal -->
+  <div class="modal hidden" id="modal">
+    <div class="modal-box">
+      <div class="card-head"><h3 id="modalTitle"></h3><button class="icon-btn" id="modalClose">✕</button></div>
+      <div id="modalBody"></div>
+    </div>
+  </div>
+  <div class="toast" id="toast"></div>
+
+  <script src="js/api.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

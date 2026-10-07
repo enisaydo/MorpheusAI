@@ -1,0 +1,11 @@
+services:
+  morpheus-ai:
+    build: .
+    image: morpheus-ai:latest
+    container_name: morpheus-ai
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-3000}:3000"
+    environment:
+      # Boş bırakılırsa DEMO modunda çalışır; doluysa /api/* istekleri buraya proxy'lenir
+      AI_BACKEND_URL: ${AI_BACKEND_URL:-}

@@ -1,0 +1,46 @@
+[
+  {
+    "id": "jt-101",
+    "name": "NGINX | Install & Configure",
+    "project": "infra-web",
+    "playbook": "playbooks/nginx.yml",
+    "inventory": "PROD-WEB",
+    "owner": "Platform Team",
+    "lastScore": 54,
+    "updatedAt": "2026-10-02",
+    "content": "- hosts: all\n  tasks:\n    - apt:\n        name: nginx\n        state: latest\n    - name: Copy config\n      copy:\n        src: nginx.conf\n        dest: /etc/nginx/nginx.conf\n      notify: restart nginx\n    - name: Reload\n      shell: systemctl reload nginx\n      ignore_errors: true\n"
+  },
+  {
+    "id": "jt-102",
+    "name": "PostgreSQL | Create User",
+    "project": "infra-db",
+    "playbook": "playbooks/pg_user.yml",
+    "inventory": "UAT-DB",
+    "owner": "DBA Team",
+    "lastScore": 41,
+    "updatedAt": "2026-09-28",
+    "content": "---\n- name: PostgreSQL | Create User\n  hosts: db_servers\n  become: true\n  vars:\n    db_user: app_user\n    db_password: S3cr3t!2024\n  tasks:\n    - name: Create db user\n      community.postgresql.postgresql_user:\n        name: \"{{ db_user }}\"\n        password: \"{{ db_password }}\"\n      tags: [db]\n    - name: Grant\n      command: psql -c \"GRANT ALL ON DATABASE app TO app_user\"\n"
+  },
+  {
+    "id": "jt-103",
+    "name": "Linux | Baseline Hardening",
+    "project": "security-baseline",
+    "playbook": "playbooks/hardening.yml",
+    "inventory": "ALL-LINUX",
+    "owner": "SecOps",
+    "lastScore": 94,
+    "updatedAt": "2026-10-05",
+    "content": "---\n# Amaç: Linux sunucular için CIS baseline sertleştirme\n# Sahip: SecOps\n- name: Linux | Baseline Hardening\n  hosts: \"{{ target_hosts }}\"\n  become: true\n  vars_files:\n    - vars/hardening.yml\n  pre_tasks:\n    - name: Validate inputs\n      ansible.builtin.assert:\n        that: target_hosts is defined\n  tasks:\n    - name: Harden sshd config\n      ansible.builtin.template:\n        src: sshd_config.j2\n        dest: /etc/ssh/sshd_config\n        mode: \"0600\"\n      notify: Restart sshd\n      tags: [ssh]\n  handlers:\n    - name: Restart sshd\n      ansible.builtin.service:\n        name: sshd\n        state: restarted\n"
+  },
+  {
+    "id": "jt-104",
+    "name": "Payment API | Deploy",
+    "project": "app-payment",
+    "playbook": "playbooks/deploy.yml",
+    "inventory": "PROD-APP",
+    "owner": "Payment Squad",
+    "lastScore": 72,
+    "updatedAt": "2026-10-06",
+    "content": "---\n# Amaç: Payment API deploy\n- name: Payment API | Deploy\n  hosts: payment_api\n  become: true\n  tasks:\n    - name: Fetch artifact\n      ansible.builtin.get_url:\n        url: \"{{ artifact_url }}\"\n        dest: /opt/payment/app.jar\n      tags: [deploy]\n    - name: Write env file\n      ansible.builtin.template:\n        src: app.env.j2\n        dest: /opt/payment/.env\n      tags: [deploy]\n    - name: Restart app\n      ansible.builtin.command: systemctl restart payment\n      tags: [deploy]\n"
+  }
+]
