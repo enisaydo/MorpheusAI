@@ -1,9 +1,8 @@
-# Docker kullanılmayan Linux sunucular için systemd servisi
-# Kurulum:
-#   sudo cp -r . /opt/morpheus-ai
-#   sudo useradd --system --no-create-home morpheus
-#   sudo cp deploy/morpheus-ai.service /etc/systemd/system/
-#   sudo systemctl daemon-reload && sudo systemctl enable --now morpheus-ai
+# Container kullanılmayan Linux sunucular için systemd servisi (root ile çalışır)
+# Kurulum (root olarak):
+#   git clone https://github.com/enisaydo/MorpheusAI.git /opt/morpheus-ai
+#   cp /opt/morpheus-ai/deploy/morpheus-ai.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now morpheus-ai
 [Unit]
 Description=MorpheusAI - Ansible uyum analiz arayüzü
 After=network-online.target
@@ -11,18 +10,12 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=morpheus
+User=root
 WorkingDirectory=/opt/morpheus-ai
 ExecStart=/usr/bin/node /opt/morpheus-ai/server.js
 Environment=NODE_ENV=production
-Environment=PORT=3000
-# Environment=AI_BACKEND_URL=http://ai-backend:8000
 Restart=on-failure
 RestartSec=5
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target

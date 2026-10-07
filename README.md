@@ -11,28 +11,52 @@ npm start            # veya: node server.js
 
 Bağımlılık yoktur, Node.js 18+ yeterlidir. `npm test` smoke testleri çalıştırır.
 
-## Sunucuya kurulum
+## Sunucuya kurulum (Podman, root)
 
-### Docker Compose (önerilen)
+Uygulama container içinde **root** kullanıcısıyla çalışır.
 
 ```bash
-cp .env.example .env        # AI_BACKEND_URL ve HOST_PORT'u düzenleyin
-docker compose up -d --build
+sudo -i
+git clone https://github.com/enisaydo/MorpheusAI.git /opt/morpheus-ai
+cd /opt/morpheus-ai
+cp .env.example .env && vi .env          # TMS / CHAT değerlerini girin
+
+./deploy/podman-up.sh --systemd          # build + systemd (Quadlet) servisi, açılışta otomatik başlar
+# veya
+./deploy/podman-up.sh                    # sadece build + podman run
+```
+
+Güncelleme:
+
+```bash
+cd /opt/morpheus-ai && git pull && ./deploy/podman-up.sh --systemd
+```
+
+Yönetim:
+
+```bash
+systemctl status morpheus-ai       # --systemd kurulumunda
+journalctl -u morpheus-ai -f
+podman ps / podman logs -f morpheus-ai
+```
+
+### podman-compose ile
+
+```bash
+podman-compose up -d --build       # veya: podman compose up -d --build
 ```
 
 ### Hazır imaj (GHCR)
 
-`main` dalına her push'ta CI testleri çalıştırır ve imajı `ghcr.io/<owner>/<repo>:latest` olarak yayınlar.
+`main` dalına her push'ta CI testleri çalıştırır ve imajı `ghcr.io/enisaydo/morpheusai:latest` olarak yayınlar.
 
 ```bash
-docker run -d --name morpheus-ai -p 3000:3000 \
-  -e AI_BACKEND_URL=http://ai-backend:8000 \
-  ghcr.io/<owner>/<repo>:latest
+podman run -d --name morpheus-ai --user root -p 3000:3000 --env-file .env ghcr.io/enisaydo/morpheusai:latest
 ```
 
-### Docker olmadan (systemd)
+### Container olmadan (systemd)
 
-`deploy/morpheus-ai.service` dosyasındaki adımları izleyin.
+`deploy/morpheus-ai.service` dosyasındaki adımları izleyin (Node.js 18+ gerekir).
 
 ## Ekranlar
 
@@ -88,6 +112,6 @@ public/js/ui.js      ortak UI yardımcıları
 public/js/app.js     ekran mantığı
 scripts/smoke-test.js  uçtan uca smoke test (npm test)
 Dockerfile, docker-compose.yml, .env.example
-deploy/              systemd servis dosyası
+deploy/              podman-up.sh, Podman Quadlet (.container), systemd servisi
 .github/workflows/   CI: test + GHCR'a docker imajı
 ```

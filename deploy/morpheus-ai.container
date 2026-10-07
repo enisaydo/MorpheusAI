@@ -1,0 +1,36 @@
+# Podman Quadlet — MorpheusAI'yi systemd servisi olarak çalıştırır (root / rootful podman)
+#
+# Kurulum (root olarak):
+#   cd /opt/morpheus-ai
+#   podman build --format docker -t localhost/morpheus-ai:latest .
+#   cp deploy/morpheus-ai.container /etc/containers/systemd/
+#   systemctl daemon-reload
+#   systemctl start morpheus-ai
+#
+# Durum / log:
+#   systemctl status morpheus-ai
+#   journalctl -u morpheus-ai -f
+[Unit]
+Description=MorpheusAI - Ansible uyum analiz arayüzü (Podman)
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+ContainerName=morpheus-ai
+Image=localhost/morpheus-ai:latest
+User=root
+PublishPort=3000:3000
+EnvironmentFile=/opt/morpheus-ai/.env
+Environment=PORT=3000
+HealthCmd=wget -qO- http://127.0.0.1:3000/api/health || exit 1
+HealthInterval=30s
+# Kurum içi CA sertifikası gerekiyorsa:
+# Volume=/opt/morpheus-ai/certs/kurum-ca.pem:/certs/kurum-ca.pem:ro,Z
+# Environment=NODE_EXTRA_CA_CERTS=/certs/kurum-ca.pem
+
+[Service]
+Restart=always
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target default.target

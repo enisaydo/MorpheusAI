@@ -1,19 +1,20 @@
+# podman-compose up -d   veya   podman compose up -d   (docker compose ile de çalışır)
 services:
   morpheus-ai:
-    build: .
-    image: morpheus-ai:latest
+    build:
+      context: .
+    image: localhost/morpheus-ai:latest
     container_name: morpheus-ai
+    user: root
     restart: unless-stopped
     ports:
       - "${HOST_PORT:-3000}:3000"
     # TMS token + chat/completions ayarları (bkz. .env.example)
     env_file:
-      - path: .env
-        required: false
+      - .env
     environment:
       PORT: 3000
-    # Kurum içi CA sertifikası gerekiyorsa:
+    # Kurum içi CA sertifikası gerekiyorsa (":Z" SELinux etiketi içindir):
     # volumes:
-    #   - ./certs/kurum-ca.pem:/certs/kurum-ca.pem:ro
-    # environment:
-    #   NODE_EXTRA_CA_CERTS: /certs/kurum-ca.pem
+    #   - ./certs/kurum-ca.pem:/certs/kurum-ca.pem:ro,Z
+    # ve .env içine:  NODE_EXTRA_CA_CERTS=/certs/kurum-ca.pem
