@@ -22,7 +22,7 @@ User=root
 PublishPort=3000:3000
 EnvironmentFile=/opt/morpheus-ai/.env
 Environment=PORT=3000
-HealthCmd=wget -qO- http://127.0.0.1:3000/api/health || exit 1
+HealthCmd=node -e "require('http').get('http://127.0.0.1:3000/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
 HealthInterval=30s
 # Kurum içi CA sertifikası gerekiyorsa:
 # Volume=/opt/morpheus-ai/certs/kurum-ca.pem:/certs/kurum-ca.pem:ro,Z

@@ -4,6 +4,10 @@
 #            sudo ./deploy/podman-up.sh --systemd  → Quadlet ile systemd servisi olarak
 set -euo pipefail
 
+# Kurum proxy'si (http_proxy) localhost isteklerini de yakalayıp 403 döndürebiliyor
+export no_proxy="localhost,127.0.0.1,::1${no_proxy:+,$no_proxy}"
+export NO_PROXY="$no_proxy"
+
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 IMAGE="localhost/morpheus-ai:latest"
 NAME="morpheus-ai"
@@ -73,8 +77,8 @@ fi
 
 echo "==> Sağlık kontrolü"
 for i in {1..20}; do
-  if curl -fsS "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1; then
-    curl -s "http://127.0.0.1:$PORT/api/health"; echo
+  if curl --noproxy '*' -fsS "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1; then
+    curl --noproxy '*' -s "http://127.0.0.1:$PORT/api/health"; echo
     echo "MorpheusAI hazır → http://$(hostname -I 2>/dev/null | awk '{print $1}'):$PORT"
     exit 0
   fi
