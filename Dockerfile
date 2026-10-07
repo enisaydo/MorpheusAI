@@ -8,6 +8,7 @@ WORKDIR /app
 
 COPY package.json ./
 COPY server.js ./
+COPY lib ./lib
 COPY mock ./mock
 COPY public ./public
 

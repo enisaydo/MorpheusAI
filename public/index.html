@@ -194,18 +194,32 @@
       <!-- ---------- SETTINGS ---------- -->
       <section class="view" data-view="settings">
         <div class="card narrow">
-          <div class="card-head"><h3>AI Backend Bağlantısı</h3></div>
+          <div class="card-head">
+            <h3>GenAI Gateway</h3>
+            <button class="btn ghost sm" type="button" id="testToken">⟳ Token al &amp; test et</button>
+          </div>
+          <div id="genaiStatus"></div>
+          <div class="flow">
+            <span class="flow-step">.env</span><span class="flow-arrow">→</span>
+            <span class="flow-step">TMS token</span><span class="flow-arrow">→</span>
+            <span class="flow-step">Bearer + header'lar</span><span class="flow-arrow">→</span>
+            <span class="flow-step">chat/completions</span>
+          </div>
+          <p class="muted sm">Token, URL ve header'lar sunucu tarafında <code>.env</code> dosyasından okunur; tarayıcıya hiç gönderilmez. Şablon için <code>.env.example</code>'a bakın.</p>
+        </div>
+        <div class="card narrow">
+          <div class="card-head"><h3>Arayüz Ayarları</h3></div>
           <form id="settingsForm" class="form">
             <label>API Base URL
               <input class="input" name="apiBase" placeholder="/api" />
-              <small>Varsayılan <code>/api</code> — yerel sunucu. Sunucuyu <code>AI_BACKEND_URL</code> ile başlatırsanız istekler oraya proxy'lenir.</small>
+              <small>Varsayılan <code>/api</code> — MorpheusAI sunucusu. Genelde değiştirmenize gerek yoktur.</small>
             </label>
-            <label>API Anahtarı
-              <input class="input" name="apiKey" type="password" placeholder="sk-…" autocomplete="off" />
-              <small>Varsa <code>Authorization: Bearer</code> başlığı olarak gönderilir. Tarayıcıda saklanır.</small>
+            <label>MorpheusAI API Anahtarı (opsiyonel)
+              <input class="input" name="apiKey" type="password" placeholder="boş bırakılabilir" autocomplete="off" />
+              <small>Yalnızca proxy modunda ayrı bir backend kullanıyorsanız. GenAI token'ı bununla ilgili değildir.</small>
             </label>
-            <label>Model
-              <input class="input" name="model" placeholder="ör. morpheus-analyzer-v1" />
+            <label>Model (opsiyonel)
+              <input class="input" name="model" placeholder="boş = .env'deki CHAT_MODEL" />
             </label>
             <label>Sistem Promptu
               <textarea class="input" name="systemPrompt" rows="5"></textarea>

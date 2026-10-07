@@ -45,25 +45,41 @@ docker run -d --name morpheus-ai -p 3000:3000 \
 | **Standartlar** | Kural kataloğu; kuralları aç/kapat, özel kural ekle |
 | **Ayarlar** | API Base URL, API anahtarı, model, sistem promptu, API sözleşmesi |
 
-## AI backend'i bağlama
+## AI bağlantısı (GenAI gateway)
 
-Varsayılan olarak sunucu **demo modunda** çalışır (`mock/` altındaki örnek veriler + basit kural motoru).
+```
+.env  →  TMS token servisi  →  Authorization: Bearer <token> + header'lar  →  chat/completions
+```
 
-Gerçek backend'i bağlamanın iki yolu var:
+1. `cp .env.example .env` ve değerleri doldurun (Bruno'daki istekle birebir):
+   - `TMS_TOKEN_URL`, `TMS_BODY`, `TMS_H_*` → token isteği
+   - `CHAT_URL`, `CHAT_H_*`, `CHAT_MODEL` → chat/completions isteği
+   - Header'lar `PREFIX_HEADER_ADI` biçiminde yazılır: `CHAT_H_CLIENT_SESSION_ID` → `client-session-id`
+   - `{{uuid}}` her istekte yeni UUID üretir
+2. `npm start` — `.env` doluysa sunucu otomatik **GENAI** moduna geçer.
+3. *Ayarlar → Token al & test et* ile bağlantıyı doğrulayın.
 
-1. **Proxy (önerilen):** Sunucuyu backend adresiyle başlatın; tüm `/api/*` istekleri oraya yönlendirilir.
-   ```bash
-   # PowerShell
-   $env:AI_BACKEND_URL="http://ai-backend:8000"; node server.js
-   ```
-2. **Doğrudan:** Arayüzde *Ayarlar → API Base URL* alanına backend adresini girin (backend CORS'a izin vermelidir).
+Token sunucuda cache'lenir, süresi dolunca veya 401/403 alınınca otomatik yenilenir. Token ve header'lar tarayıcıya hiç gönderilmez.
+Kurum içi sertifika için `NODE_EXTRA_CA_CERTS=/yol/kurum-ca.pem` kullanın.
+
+| Mod | Ne zaman |
+|---|---|
+| `genai` | `.env`'de `TMS_TOKEN_URL` ve `CHAT_URL` tanımlı |
+| `proxy` | `AI_BACKEND_URL` tanımlı — tüm `/api/*` istekleri o servise gider |
+| `demo` | hiçbiri yok — mock veri + kural motoru |
+
+> **Uyarı:** Repo public'tir. `.env` dosyası `.gitignore`'dadır; kurum adresleri, client-id ve token'ları asla commit'lemeyin.
 
 Beklenen uç noktalar ve veri şekilleri `public/js/api.js` içindeki `API_CONTRACT`'ta ve *Ayarlar* ekranında yer alır.
 
 ## Yapı
 
 ```
-server.js            statik sunucu + demo API + proxy
+server.js            statik sunucu + API yönlendirme (genai / proxy / demo)
+lib/genai.js         TMS token + chat/completions istemcisi
+lib/analyzer.js      prompt oluşturma ve AI cevabını AnalysisResult'a dönüştürme
+lib/demo.js          demo kural motoru
+lib/env.js           .env yükleyici
 mock/                demo standartlar, template'ler, workflow'lar
 public/index.html    arayüz iskeleti
 public/styles.css    Morpheus / Matrix teması

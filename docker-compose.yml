@@ -6,6 +6,14 @@ services:
     restart: unless-stopped
     ports:
       - "${HOST_PORT:-3000}:3000"
+    # TMS token + chat/completions ayarları (bkz. .env.example)
+    env_file:
+      - path: .env
+        required: false
     environment:
-      # Boş bırakılırsa DEMO modunda çalışır; doluysa /api/* istekleri buraya proxy'lenir
-      AI_BACKEND_URL: ${AI_BACKEND_URL:-}
+      PORT: 3000
+    # Kurum içi CA sertifikası gerekiyorsa:
+    # volumes:
+    #   - ./certs/kurum-ca.pem:/certs/kurum-ca.pem:ro
+    # environment:
+    #   NODE_EXTRA_CA_CERTS: /certs/kurum-ca.pem

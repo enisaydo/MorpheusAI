@@ -53,7 +53,7 @@ const Api = (() => {
   };
 
   return {
-    health: () => request("/health"),
+    health: (deep = false) => request(deep ? "/health?deep=1" : "/health"),
     standards: () => request("/standards"),
     templates: () => request("/templates"),
     template: (id) => request(`/templates/${encodeURIComponent(id)}`),
@@ -73,7 +73,7 @@ const Api = (() => {
 })();
 
 /* Backend ekibi için sözleşme (Ayarlar ekranında da gösterilir) */
-const API_CONTRACT = `GET  /api/health           → { status, mode }
+const API_CONTRACT = `GET  /api/health[?deep=1]  → { status, mode: "genai"|"proxy"|"demo", genai?: { tokenHost, chatHost, tokenCached, tokenCheck? } }
 GET  /api/standards        → Standard[]
 GET  /api/templates        → { id, name, project, playbook, inventory, owner, lastScore, updatedAt }[]
 GET  /api/templates/:id    → { ...template, content: "<yaml>" }

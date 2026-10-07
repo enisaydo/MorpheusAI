@@ -505,16 +505,20 @@ function fillSettings() {
   $("#contract").textContent = API_CONTRACT;
 }
 
+const MODE_LABEL = { genai: ["GENAI", "GenAI gateway bağlı"], proxy: ["PROXY", "AI backend bağlı"], demo: ["DEMO", "Sunucu bağlı · demo"] };
+
 async function checkHealth(showToast = false) {
   const c = $("#connStatus"), badge = $("#modeBadge");
   try {
-    const h = await Api.health();
-    const live = h.mode !== "demo";
-    c.className = "conn ok";
-    $(".label", c).textContent = live ? "AI backend bağlı" : "Sunucu bağlı · demo";
-    badge.textContent = live ? "LIVE" : "DEMO";
-    badge.classList.toggle("live", live);
-    if (showToast) toast(`Bağlantı başarılı (${h.mode || "ok"})`);
+    const h = await Api.health(showToast);
+    const [badgeText, label] = MODE_LABEL[h.mode] || [String(h.mode).toUpperCase(), "Bağlı"];
+    const failed = h.genai?.tokenCheck === "failed";
+    c.className = `conn ${failed ? "err" : "ok"}`;
+    $(".label", c).textContent = failed ? "Token alınamadı" : label;
+    badge.textContent = badgeText;
+    badge.classList.toggle("live", h.mode !== "demo");
+    renderGenaiStatus(h);
+    if (showToast) failed ? toast(`Token hatası: ${h.genai.error}`, true) : toast(`Bağlantı başarılı (${badgeText})`);
     return true;
   } catch (e) {
     c.className = "conn err";
@@ -522,6 +526,25 @@ async function checkHealth(showToast = false) {
     if (showToast) toast(`Bağlantı hatası: ${e.message}`, true);
     return false;
   }
+}
+
+function renderGenaiStatus(h) {
+  const el = $("#genaiStatus");
+  if (!el) return;
+  const g = h.genai;
+  const row = (k, v) => `<div class="kv"><span class="muted">${k}</span><span class="mono">${v}</span></div>`;
+  const modeInfo = {
+    genai: "Sunucu .env'deki TMS + chat/completions ayarlarıyla kurumsal GenAI'a bağlanıyor.",
+    proxy: `İstekler <code>${esc(h.backend || "")}</code> adresine iletiliyor.`,
+    demo: "Gerçek AI bağlı değil. Sunucu dizinindeki <code>.env</code> dosyasında <code>TMS_TOKEN_URL</code> ve <code>CHAT_URL</code> tanımlayıp sunucuyu yeniden başlatın.",
+  }[h.mode] || "";
+  el.innerHTML = `<p class="muted sm">${modeInfo}</p>` + (g ? [
+    row("Token servisi", esc(g.tokenHost || "—")),
+    row("Chat servisi", esc(g.chatHost || "—")),
+    row("Token", g.tokenCheck === "failed" ? `<span style="color:var(--red)">alınamadı</span>`
+      : g.tokenCached ? `<span style="color:var(--green)">geçerli · ${g.tokenExpiresIn}s</span>` : "henüz alınmadı"),
+    g.error ? `<div class="fix"><pre>${esc(g.error)}</pre></div>` : "",
+  ].join("") : "");
 }
 
 const QUOTES = [
@@ -644,6 +667,11 @@ function bindEvents() {
     boot();
   };
   $("#testConn").onclick = () => checkHealth(true);
+  $("#testToken").onclick = async (e) => {
+    e.target.disabled = true;
+    await checkHealth(true);
+    e.target.disabled = false;
+  };
 }
 
 async function boot() {
