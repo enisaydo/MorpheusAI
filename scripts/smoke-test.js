@@ -93,7 +93,9 @@ function fakeGateway() {
         seen.tmsCalls++;
         seen.tmsBody = body;
         if (req.headers.channel !== "B2B" || !req.headers["x-forwarded-for"]) return send(400, { error: "eksik header" });
-        return send(200, { data: { accessToken: "tok-123" }, expiresIn: 600 });
+        // Gerçek gateway gibi: gövde boş, token ve süre response header'ında
+        res.writeHead(200, { authorization: "Bearer tok-123", expires_in: "86389", "content-length": 0 });
+        return res.end();
       }
       if (req.url === "/chat/completions") {
         seen.chatCalls++;
@@ -124,24 +126,29 @@ async function genaiSuite() {
   const srv = startServer(3997, {
     MORPHEUS_MODE: "",
     TMS_TOKEN_URL: "http://127.0.0.1:3998/authentication/tms/v3/tmsToken",
-    TMS_BODY: '{"clientId":"abc"}',
+    GENAI_CLIENT_ID: "client-xyz",
+    TMS_PASSWORD: 'p@ss"w\\rd',
+    TMS_BODY: '{"client_id":"{{env:GENAI_CLIENT_ID}}","username":"u","password":"{{env:TMS_PASSWORD}}"}',
     TMS_H_CHANNEL: "B2B",
     TMS_H_X_FORWARDED_FOR: "127.0.0.1",
     CHAT_URL: "http://127.0.0.1:3998/chat/completions",
     CHAT_H_CHANNEL: "Branch",
-    CHAT_H_CLIENT_ID: "client-xyz",
+    CHAT_H_CLIENT_ID: "{{env:GENAI_CLIENT_ID}}",
     CHAT_H_CLIENT_SESSION_ID: "{{uuid}}",
     CHAT_H_PROJECT_INFO: "morpheusai",
     CHAT_AUTH_PREFIX: "Bearer",
     CHAT_MODEL: "test-model",
-    CHAT_BODY_EXTRA: '{"temperature":0.2}',
+    CHAT_MODEL_FIELD: "model_name",
+    CHAT_BODY_EXTRA: '{"max_completion_tokens":1440}',
   });
   try {
     await waitFor(base);
     const health = await (await fetch(`${base}/api/health?deep=1`)).json();
     assert(health.mode === "genai", ".env ayarlarıyla otomatik GENAI moduna geçti");
-    assert(health.genai.tokenCheck === "ok", "TMS token alındı (data.accessToken otomatik bulundu)");
-    assert(seen.tmsBody === '{"clientId":"abc"}', "TMS_BODY olduğu gibi gönderildi");
+    assert(health.genai.tokenCheck === "ok", "TMS token response header'ından (authorization: Bearer) alındı");
+    assert(health.genai.tokenExpiresIn > 86000, `token süresi expires_in header'ından okundu (${health.genai.tokenExpiresIn}s)`);
+    const tmsBody = JSON.parse(seen.tmsBody);
+    assert(tmsBody.client_id === "client-xyz" && tmsBody.password === 'p@ss"w\\rd', "TMS_BODY {{env:..}} ile dolduruldu, özel karakterli parola JSON'u bozmadı");
 
     const chat = await postJson(base, "/api/chat", { messages: [{ role: "user", content: "selam" }] });
     assert(chat.reply.includes("Morpheus"), "chat cevabı choices.0.message.content'ten okundu");
@@ -150,7 +157,8 @@ async function genaiSuite() {
     assert(h.authorization === "Bearer tok-123", "Authorization: Bearer <token> eklendi");
     assert(h.channel === "Branch" && h["client-id"] === "client-xyz" && h["project-info"] === "morpheusai", "CHAT_H_* header'ları gönderildi");
     assert(UUID_RE.test(h["client-session-id"]), "{{uuid}} yer tutucusu UUID'ye çevrildi");
-    assert(seen.lastChatBody.model === "test-model" && seen.lastChatBody.temperature === 0.2, "model ve CHAT_BODY_EXTRA gövdeye eklendi");
+    assert(seen.lastChatBody.model_name === "test-model" && !("model" in seen.lastChatBody), "model 'model_name' alanıyla gönderildi");
+    assert(seen.lastChatBody.max_completion_tokens === 1440, "CHAT_BODY_EXTRA gövdeye eklendi");
     assert(seen.lastChatBody.messages[0].role === "system", "system prompt eklendi");
 
     const tpl = await postJson(base, "/api/analyze/template", { content: "- hosts: all\n  tasks: []", rules: ["STD-005"] });
