@@ -23,7 +23,23 @@ const genai = require("./lib/genai");
 
 const PORT = process.env.PORT || 3000;
 const AI_BACKEND_URL = process.env.AI_BACKEND_URL || "";
-const MODE = process.env.MORPHEUS_MODE || (AI_BACKEND_URL ? "proxy" : genai.isConfigured() ? "genai" : "demo");
+const MODE = resolveMode();
+
+/* Yapılandırma eksik/hatalıysa çökmek yerine demo moduna düşer. */
+function resolveMode() {
+  const wanted = process.env.MORPHEUS_MODE || (AI_BACKEND_URL ? "proxy" : genai.isConfigured() ? "genai" : "demo");
+  if (wanted === "genai" && !genai.isConfigured()) {
+    console.warn("[uyarı] GenAI ayarları geçersiz, DEMO moduna geçiliyor:\n  - " + genai.configProblems().join("\n  - "));
+    return "demo";
+  }
+  if (wanted === "proxy" && !AI_BACKEND_URL) {
+    console.warn("[uyarı] MORPHEUS_MODE=proxy ama AI_BACKEND_URL boş, DEMO moduna geçiliyor");
+    return "demo";
+  }
+  if (wanted === "demo" && !process.env.MORPHEUS_MODE && process.env.TMS_TOKEN_URL)
+    console.warn("[bilgi] GenAI ayarları tamamlanmamış, DEMO modunda çalışılıyor:\n  - " + genai.configProblems().join("\n  - "));
+  return wanted;
+}
 const PUBLIC_DIR = path.join(__dirname, "public");
 
 const MIME = {

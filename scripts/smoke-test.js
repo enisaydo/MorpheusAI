@@ -19,7 +19,7 @@ function assert(cond, msg) {
 
 function startServer(port, extraEnv) {
   const env = { ...process.env, PORT: String(port), AI_BACKEND_URL: "", ...extraEnv };
-  return spawn(process.execPath, [SERVER], { env, stdio: ["ignore", "ignore", "inherit"] });
+  return spawn(process.execPath, [SERVER], { env, stdio: ["ignore", "ignore", "ignore"] });
 }
 
 async function waitFor(base) {
@@ -37,13 +37,18 @@ const postJson = (base, p, body) =>
 /* ------------------------------------------------------------------ */
 
 async function demoSuite() {
-  console.log("\n[DEMO modu]");
+  console.log("\n[DEMO modu — .env.example yer tutucularıyla]");
   const base = "http://127.0.0.1:3999";
-  const srv = startServer(3999, { MORPHEUS_MODE: "demo" });
+  // .env.example olduğu gibi kopyalanmış durum: sunucu çökmemeli, demo'ya düşmeli
+  const srv = startServer(3999, {
+    MORPHEUS_MODE: "",
+    TMS_TOKEN_URL: "https://<api-gateway>/authentication/tms/v3/tmsToken",
+    CHAT_URL: "https://<api-gateway>/sdlc-genai-management/sdlc-genai-ch/v0/chat/completions",
+  });
   try {
     await waitFor(base);
     const health = await (await fetch(`${base}/api/health`)).json();
-    assert(health.status === "ok" && health.mode === "demo", "health: ok / demo");
+    assert(health.status === "ok" && health.mode === "demo", "yer tutucu URL'lerle çökmeden DEMO modunda açıldı");
 
     const index = await fetch(`${base}/`);
     assert(index.ok && (await index.text()).includes("MorpheusAI"), "index.html sunuluyor");
