@@ -21,7 +21,7 @@ git clone https://github.com/enisaydo/MorpheusAI.git /opt/morpheus-ai
 cd /opt/morpheus-ai
 cp .env.example .env && vi .env          # TMS / CHAT değerlerini girin
 
-./deploy/podman-up.sh --systemd          # build + systemd (Quadlet) servisi, açılışta otomatik başlar
+./deploy/podman-up.sh --systemd          # build + systemd servisi (podman run), açılışta otomatik başlar
 # veya
 ./deploy/podman-up.sh                    # sadece build + podman run
 ```
@@ -112,6 +112,6 @@ public/js/ui.js      ortak UI yardımcıları
 public/js/app.js     ekran mantığı
 scripts/smoke-test.js  uçtan uca smoke test (npm test)
 Dockerfile, docker-compose.yml, .env.example
-deploy/              podman-up.sh, Podman Quadlet (.container), systemd servisi
+deploy/              podman-up.sh, Podman systemd servisi, container'sız systemd servisi
 .github/workflows/   CI: test + GHCR'a docker imajı
 ```

@@ -1,0 +1,24 @@
+# MorpheusAI - Podman container'ını çalıştıran systemd servisi (root)
+# Tüm Podman sürümleriyle çalışır (Quadlet gerektirmez).
+# deploy/podman-up.sh --systemd tarafından __APP_DIR__ / __PORT__ doldurularak
+# /etc/systemd/system/morpheus-ai.service olarak kurulur.
+[Unit]
+Description=MorpheusAI - Ansible uyum analiz arayüzü (Podman)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=5
+TimeoutStartSec=120
+TimeoutStopSec=20
+ExecStartPre=-/usr/bin/podman rm -f morpheus-ai
+ExecStart=/usr/bin/podman run --rm --name morpheus-ai --user root \
+  -p __PORT__:3000 \
+  --env-file __APP_DIR__/.env -e PORT=3000 \
+  localhost/morpheus-ai:latest
+ExecStop=/usr/bin/podman stop -t 10 morpheus-ai
+
+[Install]
+WantedBy=multi-user.target
