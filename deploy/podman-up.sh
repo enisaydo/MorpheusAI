@@ -29,6 +29,14 @@ if [[ ! -f .env ]]; then
 fi
 chmod 600 .env
 
+# Port önceliği: komut satırı (HOST_PORT=8080 ./podman-up.sh) > .env'deki HOST_PORT > 3000
+if [[ -z "${HOST_PORT:-}" ]]; then
+  ENV_PORT="$(grep -E '^HOST_PORT=' .env | tail -n1 | cut -d= -f2 | tr -d '[:space:]"'"'" || true)"
+  PORT="${ENV_PORT:-3000}"
+fi
+[[ "$PORT" =~ ^[0-9]+$ ]] || { echo "Geçersiz port: '$PORT'" >&2; exit 1; }
+echo "==> Port: $PORT"
+
 # --- Eski kurulum kalıntılarını temizle ------------------------------------
 # 1) Container'sız (doğrudan node) servis: portu tutar
 if [[ -f "$UNIT" ]] && grep -q "bin/node" "$UNIT"; then
