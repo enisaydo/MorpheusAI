@@ -18,7 +18,7 @@ function assert(cond, msg) {
 }
 
 function startServer(port, extraEnv) {
-  const env = { ...process.env, PORT: String(port), AI_BACKEND_URL: "", ...extraEnv };
+  const env = { ...process.env, PORT: String(port), AI_BACKEND_URL: "", AI_LOG_FILE: "false", AAP_URL: "", ...extraEnv };
   return spawn(process.execPath, [SERVER], { env, stdio: ["ignore", "ignore", "ignore"] });
 }
 
@@ -103,6 +103,8 @@ function fakeGateway() {
         seen.lastChatBody = JSON.parse(body);
         if (req.headers.authorization !== "Bearer tok-123") return send(401, { error: "unauthorized" });
         const userMsg = seen.lastChatBody.messages.at(-1).content;
+        if (userMsg.includes("BOS_CEVAP")) // akıl yürüten modelin token bütçesini bitirmesi
+          return send(200, { choices: [{ message: { role: "assistant", content: "" }, finish_reason: "length" }] });
         const content = userMsg.includes("şemaya uyan geçerli JSON")
           ? "```json\n" + JSON.stringify({
               score: 42, status: "non_compliant", summary: "AI özeti",
@@ -165,9 +167,125 @@ async function genaiSuite() {
     assert(tpl.engine === "genai" && tpl.score === 42, "AI JSON cevabı AnalysisResult'a dönüştü");
     assert(tpl.findings[0].severity === "critical" && tpl.findings[0].line === 7, "bulgu alanları normalize edildi");
     assert(seen.tmsCalls === 1, `token cache'lendi (TMS çağrısı: ${seen.tmsCalls})`);
+
+    const ctxChat = await postJson(base, "/api/chat", {
+      messages: [{ role: "user", content: "analiz et" }],
+      context: { kind: "template", name: "X", content: "- hosts: all" },
+    });
+    const sys = seen.lastChatBody.messages[0].content;
+    assert(ctxChat.reply && sys.includes("STD-005") && sys.includes("JT-002"), "sohbete kurumsal standartlar eklendi");
+    assert(sys.includes("- hosts: all"), "sohbete seçilen template bağlamı eklendi");
+
+    const empty = await fetch(`${base}/api/chat`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: [{ role: "user", content: "BOS_CEVAP" }] }),
+    });
+    const emptyBody = await empty.json();
+    assert(!empty.ok && /boş cevap.*length.*max_completion_tokens/s.test(emptyBody.error), "boş model cevabı açık hata olarak raporlandı");
+
+    const logs = await (await fetch(`${base}/api/logs?service=genai`)).json();
+    assert(logs.some((l) => l.kind === "tms-token") && logs.some((l) => l.kind === "chat") && logs.some((l) => l.kind === "analyze-template"),
+      `GenAI çağrıları loglandı (${logs.length} kayıt)`);
+    const chatLog = await (await fetch(`${base}/api/logs/${logs.find((l) => l.kind === "chat").id}`)).json();
+    assert(Array.isArray(chatLog.request.body.messages) && chatLog.response.body.choices, "log kaydında gönderilen mesajlar ve dönen cevap var");
+    assert(!JSON.stringify(chatLog).includes("tok-123") && !JSON.stringify(chatLog).includes("client-xyz"), "log kaydında token ve client-id maskelendi");
+    assert(chatLog.request.body.max_completion_tokens === 1440, "sayaç alanları (max_completion_tokens) maskelenmedi");
+    const tmsLog = await (await fetch(`${base}/api/logs/${logs.find((l) => l.kind === "tms-token").id}`)).json();
+    assert(!JSON.stringify(tmsLog).includes('p@ss'), "TMS log kaydında parola maskelendi");
   } finally {
     srv.kill();
     gw.close();
+  }
+}
+
+/* ------------------------------------------------------------------ */
+
+function fakeAap() {
+  const seen = { auth: null };
+  const json = (res, code, obj) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
+  const page = (results, next = null) => ({ count: results.length, next, previous: null, results });
+  const srv = http.createServer((req, res) => {
+    seen.auth = req.headers.authorization;
+    if (req.headers.authorization !== "Bearer aap-tok") return json(res, 401, { detail: "unauthorized" });
+    const p = req.url.split("?")[0];
+    const q = new URL(req.url, "http://x").searchParams;
+    const routes = {
+      "/api/v2/me/": () => page([{ username: "morpheus-bot" }]),
+      "/api/v2/ping/": () => ({ version: "4.5.0" }),
+      "/api/v2/job_templates/": () =>
+        q.get("page") === "2"
+          ? page([{ id: 8, name: "Payment API | Deploy", modified: "2026-10-01T00:00:00Z", summary_fields: {} }])
+          : page([{ id: 7, name: "nginx kurulum", playbook: "nginx.yml", modified: "2026-10-05T10:00:00Z",
+                    summary_fields: { project: { name: "infra" }, inventory: { name: "PROD-WEB" }, organization: { name: "Ops" } } }],
+                 "/api/v2/job_templates/?page=2&page_size=200"),
+      "/api/v2/job_templates/7/": () => ({
+        id: 7, name: "nginx kurulum", description: "", playbook: "nginx.yml", verbosity: 3, timeout: 0,
+        extra_vars: "db_password: S3cret!\nport: 80", allow_simultaneous: true, survey_enabled: false,
+        ask_inventory_on_launch: true, modified: "2026-10-05T10:00:00Z",
+        summary_fields: { inventory: { name: "PROD-WEB" }, project: { name: "infra" }, credentials: [{ name: "ssh", kind: "ssh" }], labels: { results: [] } },
+      }),
+      "/api/v2/job_templates/7/notification_templates_error/": () => page([]),
+      "/api/v2/job_templates/7/notification_templates_success/": () => page([]),
+      "/api/v2/job_templates/7/notification_templates_started/": () => page([]),
+      "/api/v2/workflow_job_templates/": () => page([{ id: 9, name: "WF_PROD_WEB_DEPLOY", description: "d", summary_fields: {} }]),
+      "/api/v2/workflow_job_templates/9/": () => ({ id: 9, name: "WF_PROD_WEB_DEPLOY", summary_fields: {} }),
+      "/api/v2/workflow_job_templates/9/workflow_nodes/": () => page([
+        { id: 101, success_nodes: [102], failure_nodes: [], always_nodes: [], unified_job_template: 5,
+          summary_fields: { unified_job_template: { name: "SCM sync", unified_job_type: "project_update" } } },
+        { id: 102, success_nodes: [], failure_nodes: [103], always_nodes: [], unified_job_template: 7,
+          summary_fields: { unified_job_template: { name: "nginx kurulum", unified_job_type: "job" } } },
+        { id: 103, success_nodes: [], failure_nodes: [], always_nodes: [], unified_job_template: 11,
+          summary_fields: { unified_job_template: { name: "Onay", unified_job_type: "workflow_approval" } } },
+      ]),
+      "/api/v2/workflow_job_templates/9/notification_templates_error/": () => page([{ name: "Teams" }]),
+    };
+    const h = routes[p];
+    if (h) return json(res, 200, h());
+    if (/notification_templates_/.test(p)) return json(res, 200, page([]));
+    json(res, 404, { detail: "not found" });
+  });
+  return { srv, seen };
+}
+
+async function aapSuite() {
+  console.log("\n[AAP kataloğu — sahte Controller API]");
+  const { srv: api, seen } = fakeAap();
+  await new Promise((r) => api.listen(3994, "127.0.0.1", r));
+  const base = "http://127.0.0.1:3993";
+  const srv = startServer(3993, {
+    MORPHEUS_MODE: "demo",
+    AAP_URL: "http://127.0.0.1:3994",
+    AAP_TOKEN: "aap-tok",
+  });
+  try {
+    await waitFor(base);
+    const health = await (await fetch(`${base}/api/health?deep=1`)).json();
+    assert(health.catalog === "aap" && health.aap.check === "ok" && health.aap.user === "morpheus-bot", "AAP bağlantısı doğrulandı (/me, /ping)");
+
+    const list = await (await fetch(`${base}/api/templates`)).json();
+    assert(list.length === 2 && list[0].inventory === "PROD-WEB" && list[0].project === "infra", "job template listesi sayfalı okunup eşlendi");
+
+    const jt = await (await fetch(`${base}/api/templates/7`)).json();
+    const def = JSON.parse(jt.content);
+    assert(def.type === "aap_job_template" && def.verbosity === 3 && def.notifications.error.length === 0, "job template tanımı içerik olarak üretildi");
+
+    const res = await postJson(base, "/api/analyze/template", { content: jt.content, templateId: "7" });
+    const ids = res.findings.map((f) => f.ruleId);
+    assert(["JT-001", "JT-002", "JT-003", "JT-004", "JT-006", "JT-007", "JT-008"].every((id) => ids.includes(id)), `AAP kuralları uygulandı (${[...new Set(ids)].join(",")})`);
+    const relist = await (await fetch(`${base}/api/templates`)).json();
+    assert(relist.find((t) => t.id === "7").lastScore === res.score, "analiz skoru listede gösteriliyor");
+
+    const wf = await (await fetch(`${base}/api/workflows/9`)).json();
+    assert(wf.nodes.map((n) => n.type).join() === "project_sync,job,approval" && wf.nodes[1].failure[0] === "103", "workflow düğümleri ve dalları eşlendi");
+    const wres = await postJson(base, "/api/analyze/workflow", { workflow: wf, workflowId: "9" });
+    assert(!wres.findings.some((f) => f.ruleId === "WF-005"), "workflow seviyesindeki hata bildirimi WF-005 için dikkate alındı");
+
+    const logs = await (await fetch(`${base}/api/logs?service=aap`)).json();
+    const one = await (await fetch(`${base}/api/logs/${logs[0].id}`)).json();
+    assert(logs.length > 5 && !JSON.stringify(one).includes("aap-tok"), "AAP çağrıları loglandı, token maskelendi");
+  } finally {
+    srv.kill();
+    api.close();
   }
 }
 
@@ -175,6 +293,7 @@ async function genaiSuite() {
   try {
     await demoSuite();
     await genaiSuite();
+    await aapSuite();
     console.log("\nSmoke test başarılı.");
   } catch (e) {
     console.error(`\n✗ ${e.message}`);

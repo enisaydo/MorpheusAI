@@ -1,23 +1,250 @@
 [
-  { "id": "STD-001", "scope": "template", "category": "Yapı", "severity": "high", "title": "Play adı zorunlu", "description": "Her play açıklayıcı bir 'name' alanı içermelidir. Format: \"<Uygulama> | <Aksiyon>\"." },
-  { "id": "STD-002", "scope": "template", "category": "Yapı", "severity": "critical", "title": "Hedef host tanımı", "description": "'hosts' alanı zorunludur ve 'all' yerine değişken/grup kullanılmalıdır." },
-  { "id": "STD-003", "scope": "template", "category": "Okunabilirlik", "severity": "medium", "title": "Task isimlendirme", "description": "Tüm task'lar 'name' alanı ile başlamalıdır." },
-  { "id": "STD-004", "scope": "template", "category": "Uyumluluk", "severity": "medium", "title": "FQCN kullanımı", "description": "Modüller tam nitelikli adla çağrılmalıdır (ansible.builtin.copy vb.)." },
-  { "id": "STD-005", "scope": "template", "category": "Güvenlik", "severity": "critical", "title": "Açık metin secret yasak", "description": "Parola, token, API anahtarı gibi bilgiler Vault veya AWX credential üzerinden gelmelidir." },
-  { "id": "STD-006", "scope": "template", "category": "Güvenlik", "severity": "low", "title": "Explicit become", "description": "Yetki yükseltme (become) davranışı açıkça belirtilmelidir." },
-  { "id": "STD-007", "scope": "template", "category": "Operasyon", "severity": "low", "title": "Tag kullanımı", "description": "Task'lar seçici çalıştırma için tag'lenmelidir." },
-  { "id": "STD-008", "scope": "template", "category": "İdempotency", "severity": "medium", "title": "shell/command idempotency", "description": "shell/command kullanımında changed_when, creates veya removes tanımlanmalıdır." },
-  { "id": "STD-009", "scope": "template", "category": "Hata Yönetimi", "severity": "high", "title": "ignore_errors yasak", "description": "Hatalar yutulmamalı; failed_when veya block/rescue kullanılmalıdır." },
-  { "id": "STD-010", "scope": "template", "category": "Yapı", "severity": "high", "title": "Handler tutarlılığı", "description": "notify kullanılan her play'de ilgili handler tanımlı olmalıdır." },
-  { "id": "STD-011", "scope": "template", "category": "İdempotency", "severity": "medium", "title": "Sürüm sabitleme", "description": "Paketlerde state: latest yerine sabit sürüm kullanılmalıdır." },
-  { "id": "STD-012", "scope": "template", "category": "Güvenlik", "severity": "medium", "title": "Dosya izinleri", "description": "copy / template / file task'larında 'mode' belirtilmelidir." },
-  { "id": "STD-013", "scope": "template", "category": "Dokümantasyon", "severity": "info", "title": "Dosya başlığı", "description": "Dosya '---' ile başlamalı ve amaç/sahip bilgisini içeren yorum barındırmalıdır." },
-  { "id": "WF-001", "scope": "workflow", "category": "İsimlendirme", "severity": "medium", "title": "Workflow isimlendirme", "description": "Format: WF_<ENV>_<UYGULAMA>_<AKSİYON> (ör. WF_PROD_PAYMENT_DEPLOY)." },
-  { "id": "WF-002", "scope": "workflow", "category": "Akış", "severity": "high", "title": "Project sync ile başla", "description": "Workflow ilk adımda SCM project sync yapmalıdır." },
-  { "id": "WF-003", "scope": "workflow", "category": "Hata Yönetimi", "severity": "high", "title": "Failure dalı zorunlu", "description": "Her job düğümünün failure veya always dalı tanımlı olmalıdır." },
-  { "id": "WF-004", "scope": "workflow", "category": "Onay", "severity": "critical", "title": "Prod onay adımı", "description": "Prod ortamına giden workflow'larda approval düğümü zorunludur." },
-  { "id": "WF-005", "scope": "workflow", "category": "Operasyon", "severity": "medium", "title": "Bildirim adımı", "description": "Akış sonucunda ilgili ekip bilgilendirilmelidir." },
-  { "id": "WF-006", "scope": "workflow", "category": "Akış", "severity": "critical", "title": "Kopuk bağlantı yok", "description": "Tüm düğüm referansları geçerli olmalıdır." },
-  { "id": "WF-007", "scope": "workflow", "category": "Akış", "severity": "low", "title": "Tek giriş noktası", "description": "Workflow tek bir başlangıç düğümüne sahip olmalıdır." },
-  { "id": "WF-008", "scope": "workflow", "category": "Hata Yönetimi", "severity": "high", "title": "Rollback senaryosu", "description": "Deploy workflow'larında rollback adımı tanımlı olmalıdır." }
+  {
+    "id": "STD-001",
+    "scope": "template",
+    "category": "Yapı",
+    "severity": "high",
+    "title": "Play adı zorunlu",
+    "description": "Her play açıklayıcı bir 'name' alanı içermelidir. Format: \"<Uygulama> | <Aksiyon>\"."
+  },
+  {
+    "id": "STD-002",
+    "scope": "template",
+    "category": "Yapı",
+    "severity": "critical",
+    "title": "Hedef host tanımı",
+    "description": "'hosts' alanı zorunludur ve 'all' yerine değişken/grup kullanılmalıdır."
+  },
+  {
+    "id": "STD-003",
+    "scope": "template",
+    "category": "Okunabilirlik",
+    "severity": "medium",
+    "title": "Task isimlendirme",
+    "description": "Tüm task'lar 'name' alanı ile başlamalıdır."
+  },
+  {
+    "id": "STD-004",
+    "scope": "template",
+    "category": "Uyumluluk",
+    "severity": "medium",
+    "title": "FQCN kullanımı",
+    "description": "Modüller tam nitelikli adla çağrılmalıdır (ansible.builtin.copy vb.)."
+  },
+  {
+    "id": "STD-005",
+    "scope": "template",
+    "category": "Güvenlik",
+    "severity": "critical",
+    "title": "Açık metin secret yasak",
+    "description": "Parola, token, API anahtarı gibi bilgiler Vault veya AWX credential üzerinden gelmelidir."
+  },
+  {
+    "id": "STD-006",
+    "scope": "template",
+    "category": "Güvenlik",
+    "severity": "low",
+    "title": "Explicit become",
+    "description": "Yetki yükseltme (become) davranışı açıkça belirtilmelidir."
+  },
+  {
+    "id": "STD-007",
+    "scope": "template",
+    "category": "Operasyon",
+    "severity": "low",
+    "title": "Tag kullanımı",
+    "description": "Task'lar seçici çalıştırma için tag'lenmelidir."
+  },
+  {
+    "id": "STD-008",
+    "scope": "template",
+    "category": "İdempotency",
+    "severity": "medium",
+    "title": "shell/command idempotency",
+    "description": "shell/command kullanımında changed_when, creates veya removes tanımlanmalıdır."
+  },
+  {
+    "id": "STD-009",
+    "scope": "template",
+    "category": "Hata Yönetimi",
+    "severity": "high",
+    "title": "ignore_errors yasak",
+    "description": "Hatalar yutulmamalı; failed_when veya block/rescue kullanılmalıdır."
+  },
+  {
+    "id": "STD-010",
+    "scope": "template",
+    "category": "Yapı",
+    "severity": "high",
+    "title": "Handler tutarlılığı",
+    "description": "notify kullanılan her play'de ilgili handler tanımlı olmalıdır."
+  },
+  {
+    "id": "STD-011",
+    "scope": "template",
+    "category": "İdempotency",
+    "severity": "medium",
+    "title": "Sürüm sabitleme",
+    "description": "Paketlerde state: latest yerine sabit sürüm kullanılmalıdır."
+  },
+  {
+    "id": "STD-012",
+    "scope": "template",
+    "category": "Güvenlik",
+    "severity": "medium",
+    "title": "Dosya izinleri",
+    "description": "copy / template / file task'larında 'mode' belirtilmelidir."
+  },
+  {
+    "id": "STD-013",
+    "scope": "template",
+    "category": "Dokümantasyon",
+    "severity": "info",
+    "title": "Dosya başlığı",
+    "description": "Dosya '---' ile başlamalı ve amaç/sahip bilgisini içeren yorum barındırmalıdır."
+  },
+  {
+    "id": "JT-001",
+    "scope": "template",
+    "category": "AAP · Yapı",
+    "severity": "high",
+    "title": "Job template isimlendirme",
+    "description": "İsim \"<Uygulama> | <Aksiyon>\" formatında olmalı ve açıklama (description) boş bırakılmamalıdır."
+  },
+  {
+    "id": "JT-002",
+    "scope": "template",
+    "category": "AAP · Güvenlik",
+    "severity": "critical",
+    "title": "extra_vars içinde secret yasak",
+    "description": "Parola, token, anahtar gibi değerler extra_vars'ta değil credential veya Vault ile verilmelidir."
+  },
+  {
+    "id": "JT-003",
+    "scope": "template",
+    "category": "AAP · Operasyon",
+    "severity": "high",
+    "title": "Prod verbosity sınırı",
+    "description": "Prod envanterine çalışan template'lerde verbosity 1'i (verbose) geçmemelidir."
+  },
+  {
+    "id": "JT-004",
+    "scope": "template",
+    "category": "AAP · Operasyon",
+    "severity": "medium",
+    "title": "Timeout tanımlı",
+    "description": "Job template'lerde 0'dan büyük bir timeout tanımlanmalıdır."
+  },
+  {
+    "id": "JT-005",
+    "scope": "template",
+    "category": "AAP · Uyumluluk",
+    "severity": "medium",
+    "title": "Execution environment seçili",
+    "description": "Execution environment açıkça seçilmeli, varsayılana bırakılmamalıdır."
+  },
+  {
+    "id": "JT-006",
+    "scope": "template",
+    "category": "AAP · Hata Yönetimi",
+    "severity": "high",
+    "title": "Hata bildirimi",
+    "description": "Prod template'lerinde notification_templates_error tanımlı olmalıdır."
+  },
+  {
+    "id": "JT-007",
+    "scope": "template",
+    "category": "AAP · Güvenlik",
+    "severity": "medium",
+    "title": "Launch'ta envanter/credential sorma",
+    "description": "Prod template'lerinde ask_inventory_on_launch ve ask_credential_on_launch kapalı olmalıdır."
+  },
+  {
+    "id": "JT-008",
+    "scope": "template",
+    "category": "AAP · Operasyon",
+    "severity": "medium",
+    "title": "Eşzamanlı çalıştırma",
+    "description": "Prod template'lerinde allow_simultaneous kapalı olmalıdır."
+  },
+  {
+    "id": "JT-009",
+    "scope": "template",
+    "category": "AAP · Güvenlik",
+    "severity": "medium",
+    "title": "Survey parola alanları",
+    "description": "Survey'deki password tipindeki sorular varsayılan değer içermemeli, zorunlu sorular işaretlenmelidir."
+  },
+  {
+    "id": "JT-010",
+    "scope": "template",
+    "category": "AAP · Dokümantasyon",
+    "severity": "low",
+    "title": "Etiket kullanımı",
+    "description": "Template sahibini/uygulamayı belirten label tanımlanmalıdır."
+  },
+  {
+    "id": "WF-001",
+    "scope": "workflow",
+    "category": "İsimlendirme",
+    "severity": "medium",
+    "title": "Workflow isimlendirme",
+    "description": "Format: WF_<ENV>_<UYGULAMA>_<AKSİYON> (ör. WF_PROD_PAYMENT_DEPLOY)."
+  },
+  {
+    "id": "WF-002",
+    "scope": "workflow",
+    "category": "Akış",
+    "severity": "high",
+    "title": "Project sync ile başla",
+    "description": "Workflow ilk adımda SCM project sync yapmalıdır."
+  },
+  {
+    "id": "WF-003",
+    "scope": "workflow",
+    "category": "Hata Yönetimi",
+    "severity": "high",
+    "title": "Failure dalı zorunlu",
+    "description": "Her job düğümünün failure veya always dalı tanımlı olmalıdır."
+  },
+  {
+    "id": "WF-004",
+    "scope": "workflow",
+    "category": "Onay",
+    "severity": "critical",
+    "title": "Prod onay adımı",
+    "description": "Prod ortamına giden workflow'larda approval düğümü zorunludur."
+  },
+  {
+    "id": "WF-005",
+    "scope": "workflow",
+    "category": "Operasyon",
+    "severity": "medium",
+    "title": "Bildirim adımı",
+    "description": "Akışta bildirim düğümü veya workflow seviyesinde hata bildirimi (notification_templates_error) tanımlı olmalıdır."
+  },
+  {
+    "id": "WF-006",
+    "scope": "workflow",
+    "category": "Akış",
+    "severity": "critical",
+    "title": "Kopuk bağlantı yok",
+    "description": "Tüm düğüm referansları geçerli olmalıdır."
+  },
+  {
+    "id": "WF-007",
+    "scope": "workflow",
+    "category": "Akış",
+    "severity": "low",
+    "title": "Tek giriş noktası",
+    "description": "Workflow tek bir başlangıç düğümüne sahip olmalıdır."
+  },
+  {
+    "id": "WF-008",
+    "scope": "workflow",
+    "category": "Hata Yönetimi",
+    "severity": "high",
+    "title": "Rollback senaryosu",
+    "description": "Deploy workflow'larında rollback adımı tanımlı olmalıdır."
+  }
 ]

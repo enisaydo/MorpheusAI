@@ -28,6 +28,7 @@ if [[ ! -f .env ]]; then
   exit 1
 fi
 chmod 600 .env
+mkdir -p logs   # AI/AAP istek-cevap logları (container'a bağlanır)
 
 # Port önceliği: komut satırı (HOST_PORT=8080 ./podman-up.sh) > .env'deki HOST_PORT > 3000
 if [[ -z "${HOST_PORT:-}" ]]; then
@@ -86,6 +87,7 @@ else
     --restart unless-stopped \
     -p "$PORT:3000" \
     --env-file .env -e PORT=3000 \
+    -v "$APP_DIR/logs:/app/logs:Z" \
     "$IMAGE"
 fi
 

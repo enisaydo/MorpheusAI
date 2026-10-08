@@ -1,18 +1,10 @@
 /*
  * MorpheusAI - API katmanı
- * Tüm backend çağrıları buradan geçer. AI backend'i bağlarken yalnızca
- * bu dosyayı (veya Ayarlar ekranındaki Base URL'i) değiştirmeniz yeterlidir.
+ * Tüm backend çağrıları buradan geçer.
  */
 const Settings = (() => {
   const KEY = "morpheus.settings";
-  const defaults = {
-    apiBase: "/api",
-    apiKey: "",
-    model: "",
-    systemPrompt:
-      "Sen Morpheus'sun: kurumsal Ansible standartlarına göre Job Template ve Workflow denetleyen bir uzmansın. " +
-      "Bulguları önem derecesiyle (critical/high/medium/low/info), ilgili kural ID'si ve somut YAML düzeltme önerisiyle ver. Türkçe cevap ver.",
-  };
+  const defaults = { apiBase: "/api", apiKey: "", model: "", systemPrompt: "" };
   let cache;
   const load = () => {
     if (cache) return cache;
@@ -59,51 +51,35 @@ const Api = (() => {
     template: (id) => request(`/templates/${encodeURIComponent(id)}`),
     workflows: () => request("/workflows"),
     workflow: (id) => request(`/workflows/${encodeURIComponent(id)}`),
+    logs: (service) => request(`/logs?limit=200${service ? `&service=${service}` : ""}`),
+    log: (id) => request(`/logs/${encodeURIComponent(id)}`),
 
-    /** @returns {Promise<AnalysisResult>} */
     analyzeTemplate: ({ content, rules, customRules, prompt, templateId }) =>
       request("/analyze/template", { method: "POST", body: { content, rules, customRules, prompt, templateId, ...meta() } }),
 
-    analyzeWorkflow: ({ workflow, rules, customRules, prompt }) =>
-      request("/analyze/workflow", { method: "POST", body: { workflow, rules, customRules, prompt, ...meta() } }),
+    analyzeWorkflow: ({ workflow, workflowId, rules, customRules, prompt }) =>
+      request("/analyze/workflow", { method: "POST", body: { workflow, workflowId, rules, customRules, prompt, ...meta() } }),
 
-    chat: ({ messages, context }) =>
-      request("/chat", { method: "POST", body: { messages, context, ...meta() } }),
+    chat: ({ messages, context, rules, customRules }) =>
+      request("/chat", { method: "POST", body: { messages, context, rules, customRules, ...meta() } }),
   };
 })();
 
-/* Backend ekibi için sözleşme (Ayarlar ekranında da gösterilir) */
-const API_CONTRACT = `GET  /api/health[?deep=1]  → { status, mode: "genai"|"proxy"|"demo", genai?: { tokenHost, chatHost, tokenCached, tokenCheck? } }
-GET  /api/standards        → Standard[]
-GET  /api/templates        → { id, name, project, playbook, inventory, owner, lastScore, updatedAt }[]
-GET  /api/templates/:id    → { ...template, content: "<yaml>" }
-GET  /api/workflows        → { id, name, description, owner, lastScore, nodeCount }[]
-GET  /api/workflows/:id    → { ...workflow, nodes: Node[] }
+const API_CONTRACT = `GET  /api/health[?deep=1]   → { status, mode: "genai"|"proxy"|"demo", catalog: "aap"|"mock", genai?, aap? }
+GET  /api/standards         → Standard[]
+GET  /api/templates         → { id, name, project, playbook, inventory, owner, lastScore, updatedAt, source }[]
+GET  /api/templates/:id     → { ...template, content: "<AAP tanımı JSON | playbook YAML>" }
+GET  /api/workflows         → { id, name, description, owner, lastScore, nodeCount, source }[]
+GET  /api/workflows/:id     → { ...workflow, nodes: Node[], notifications?, settings? }
+GET  /api/logs[?service=]   → LogSummary[]          (GenAI / AAP çağrıları, en yeni önce)
+GET  /api/logs/:id          → { ...LogSummary, request: {headers, body}, response: {headers, body} }
 
-POST /api/analyze/template
-  ← { content, rules: string[], customRules?: Standard[], prompt?, templateId?, model?, systemPrompt? }
-  → AnalysisResult
+POST /api/analyze/template  ← { content, rules: string[], customRules?, prompt?, templateId? }   → AnalysisResult
+POST /api/analyze/workflow  ← { workflow: {name, nodes}, workflowId?, rules, customRules?, prompt? } → AnalysisResult
+POST /api/chat              ← { messages: {role, content}[], context?, rules?, customRules? }  → { reply: "<markdown>" }
+     context = AnalysisResult | { kind: "template", name, content } | { kind: "workflow", name, workflow }
 
-POST /api/analyze/workflow
-  ← { workflow: { name, nodes: Node[] }, rules, customRules?, prompt?, model?, systemPrompt? }
-  → AnalysisResult
-
-POST /api/chat
-  ← { messages: {role:"user"|"assistant", content}[], context?: AnalysisResult, model?, systemPrompt? }
-  → { reply: "<markdown>" }
-
-AnalysisResult = {
-  score: 0-100,
-  status: "compliant" | "warning" | "non_compliant",
-  summary: string,
-  findings: {
-    ruleId, severity: "critical"|"high"|"medium"|"low"|"info",
-    title, detail, line?, nodeId?, fix?
-  }[],
-  missing?: string[]
-}
-
-Node = { id, name, type: "job"|"approval"|"project_sync"|"inventory_sync"|"notification",
-         success?: id[], failure?: id[], always?: id[] }
-
-Standard = { id, scope: "template"|"workflow", category, severity, title, description }`;
+AnalysisResult = { score: 0-100, status: "compliant"|"warning"|"non_compliant", summary, engine,
+                   findings: { ruleId, severity, title, detail, line?, nodeId?, fix? }[], missing?: string[] }
+Node = { id, name, type: "job"|"approval"|"project_sync"|"inventory_sync"|"workflow"|"notification",
+         success?: id[], failure?: id[], always?: id[] }`;

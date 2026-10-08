@@ -20,6 +20,8 @@ const { URL } = require("url");
 const demo = require("./lib/demo");
 const analyzer = require("./lib/analyzer");
 const genai = require("./lib/genai");
+const aap = require("./lib/aap");
+const logger = require("./lib/logger");
 
 const PORT = process.env.PORT || 3000;
 const AI_BACKEND_URL = process.env.AI_BACKEND_URL || "";
@@ -52,10 +54,25 @@ const MIME = {
   ".ico": "image/x-icon",
 };
 
-/* Katalog verileri (AWX entegrasyonu gelene kadar mock) */
 const STANDARDS = require("./mock/standards.json");
 const TEMPLATES = require("./mock/templates.json");
 const WORKFLOWS = require("./mock/workflows.json");
+
+/* Katalog: AAP ayarlıysa AAP API'si, değilse mock veri */
+const CATALOG = aap.isConfigured() ? "aap" : "mock";
+const catalog = {
+  templates: () => (CATALOG === "aap" ? aap.listJobTemplates() : TEMPLATES.map(({ content, ...t }) => ({ ...t, source: "mock" }))),
+  template: (id) => (CATALOG === "aap" ? aap.getJobTemplate(id) : TEMPLATES.find((x) => x.id === id)),
+  workflows: () =>
+    CATALOG === "aap" ? aap.listWorkflows() : WORKFLOWS.map(({ nodes, ...w }) => ({ ...w, nodeCount: nodes.length, source: "mock" })),
+  workflow: (id) => (CATALOG === "aap" ? aap.getWorkflow(id) : WORKFLOWS.find((x) => x.id === id)),
+};
+
+/* Son analiz skorları (bellek içi; AAP listelerinde "uyum" sütunu için) */
+const scores = new Map();
+const withScore = (kind, list) =>
+  list.map((x) => ({ ...x, lastScore: scores.get(`${kind}:${x.id}`) ?? (x.source === "mock" ? x.lastScore : null) }));
+const remember = (kind, id, result) => (id != null && result?.score != null && scores.set(`${kind}:${id}`, result.score), result);
 
 /* ------------------------------------------------------------------ */
 /*  HTTP                                                               */
@@ -99,11 +116,16 @@ async function proxy(req, res, body) {
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function health(url) {
-  const out = { status: "ok", mode: MODE };
+  const deep = Boolean(url.searchParams.get("deep"));
+  const out = { status: "ok", mode: MODE, catalog: CATALOG, aap: aap.status() };
+  if (CATALOG === "aap" && deep) {
+    try { out.aap = { ...out.aap, check: "ok", ...(await aap.check()) }; }
+    catch (e) { out.status = "degraded"; out.aap = { ...out.aap, check: "failed", error: e.message }; }
+  }
   if (MODE === "proxy") out.backend = AI_BACKEND_URL;
   if (MODE === "genai") {
     out.genai = genai.status();
-    if (url.searchParams.get("deep")) {
+    if (deep) {
       try {
         await genai.getToken(true);
         out.genai = { ...genai.status(), tokenCheck: "ok" };
@@ -131,33 +153,39 @@ async function handleApi(req, res, url) {
     case "GET /api/standards":
       return sendJson(res, 200, STANDARDS);
     case "GET /api/templates":
-      return sendJson(res, 200, TEMPLATES.map(({ content, ...t }) => t));
+      return sendJson(res, 200, withScore("template", await catalog.templates()));
     case "GET /api/workflows":
-      return sendJson(res, 200, WORKFLOWS.map(({ nodes, ...w }) => ({ ...w, nodeCount: nodes.length })));
+      return sendJson(res, 200, withScore("workflow", await catalog.workflows()));
+    case "GET /api/logs":
+      return sendJson(res, 200, logger.list({ limit: Number(url.searchParams.get("limit") || 100), service: url.searchParams.get("service") || undefined }));
     case "POST /api/analyze/template":
       if (!json.content) return sendJson(res, 400, { error: "content zorunlu" });
-      if (ai) return sendJson(res, 200, await analyzer.analyzeTemplate(json, STANDARDS));
+      if (ai) return sendJson(res, 200, remember("template", json.templateId, await analyzer.analyzeTemplate(json, STANDARDS)));
       await delay(900);
-      return sendJson(res, 200, demo.analyzeTemplate(json.content, json.rules));
+      return sendJson(res, 200, remember("template", json.templateId, demo.analyzeTemplate(json.content, json.rules)));
     case "POST /api/analyze/workflow":
       if (!json.workflow) return sendJson(res, 400, { error: "workflow zorunlu" });
-      if (ai) return sendJson(res, 200, await analyzer.analyzeWorkflow(json, STANDARDS));
+      if (ai) return sendJson(res, 200, remember("workflow", json.workflowId, await analyzer.analyzeWorkflow(json, STANDARDS)));
       await delay(900);
-      return sendJson(res, 200, demo.analyzeWorkflow(json.workflow, json.rules));
+      return sendJson(res, 200, remember("workflow", json.workflowId, demo.analyzeWorkflow(json.workflow, json.rules)));
     case "POST /api/chat":
-      if (ai) return sendJson(res, 200, await analyzer.chat(json));
+      if (ai) return sendJson(res, 200, await analyzer.chat(json, STANDARDS));
       await delay(600);
       return sendJson(res, 200, demo.chatReply(json.messages || [], json.context));
   }
 
   let m;
   if (req.method === "GET" && (m = url.pathname.match(/^\/api\/templates\/(.+)$/))) {
-    const t = TEMPLATES.find((x) => x.id === decodeURIComponent(m[1]));
+    const t = await catalog.template(decodeURIComponent(m[1]));
     return t ? sendJson(res, 200, t) : sendJson(res, 404, { error: "Template bulunamadı" });
   }
   if (req.method === "GET" && (m = url.pathname.match(/^\/api\/workflows\/(.+)$/))) {
-    const w = WORKFLOWS.find((x) => x.id === decodeURIComponent(m[1]));
+    const w = await catalog.workflow(decodeURIComponent(m[1]));
     return w ? sendJson(res, 200, w) : sendJson(res, 404, { error: "Workflow bulunamadı" });
+  }
+  if (req.method === "GET" && (m = url.pathname.match(/^\/api\/logs\/(.+)$/))) {
+    const e = logger.get(decodeURIComponent(m[1]));
+    return e ? sendJson(res, 200, e) : sendJson(res, 404, { error: "Log kaydı bulunamadı" });
   }
   sendJson(res, 404, { error: "Bilinmeyen uç nokta", route });
 }
@@ -195,7 +223,9 @@ const server = http
       demo: "DEMO (mock cevaplar) — gerçek AI için .env dosyasını doldurun",
     }[MODE];
     console.log(`\n  MorpheusAI  →  http://localhost:${PORT}`);
-    console.log(`  Mod         →  ${desc}\n`);
+    console.log(`  Mod         →  ${desc}`);
+    const a = aap.status();
+    console.log(`  Katalog     →  ${CATALOG === "aap" ? `AAP → ${a.host}${a.apiPrefix}` : "mock veri (AAP_URL tanımlı değil)"}\n`);
   });
 
 for (const sig of ["SIGTERM", "SIGINT"])

@@ -8,3 +8,4 @@ scripts
 .env.*
 Dockerfile
 docker-compose.yml
+logs

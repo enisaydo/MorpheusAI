@@ -62,12 +62,30 @@ podman run -d --name morpheus-ai --user root -p 3000:3000 --env-file .env ghcr.i
 
 | Ekran | Ne yapar |
 |---|---|
-| **Komuta Merkezi** | Genel uyum skoru, KPI'lar, template ve workflow listeleri |
-| **Template Analizi** | YAML editörü (AWX'ten seç / dosya yükle / yapıştır), kural seçimi, ek prompt, skor + bulgular + eksikler + düzeltme önerileri |
-| **Workflow Analizi** | Workflow akışının görsel diyagramı (success/failure/always), akış standart analizi, sorunlu düğümlerin işaretlenmesi |
-| **Morpheus'a Sor** | Son analizi bağlam olarak alan sohbet / prompt ekranı |
-| **Standartlar** | Kural kataloğu; kuralları aç/kapat, özel kural ekle |
-| **Ayarlar** | API Base URL, API anahtarı, model, sistem promptu, API sözleşmesi |
+| **Genel Bakış** | AAP'deki job template ve workflow'lar, uyum skorları |
+| **Template Analizi** | AAP job template tanımı veya playbook YAML'ı; kural seçimi, ek talimat, bulgular + eksikler + düzeltmeler |
+| **Workflow Analizi** | AAP workflow akış diyagramı (success/failure/always), akış standart analizi |
+| **Morpheus'a Sor** | Sohbet; bağlam olarak job template / workflow / son analiz seçilebilir, standartlar AI'a otomatik gönderilir |
+| **Standartlar** | Kural kataloğu (STD / JT / WF); aç/kapat, özel kural ekle |
+| **AI Logları** | GenAI ve AAP'ye giden her istek ve dönen cevap (gizli alanlar maskeli), token kullanımı |
+| **Ayarlar** | GenAI ve AAP bağlantı durumu ve testi, API sözleşmesi |
+
+## Ansible Automation Platform bağlantısı
+
+`.env` içinde `AAP_URL` ve `AAP_TOKEN` (veya `AAP_USERNAME`/`AAP_PASSWORD`) tanımlanınca template ve workflow listeleri AAP'den okunur.
+AAP 2.5+ için `AAP_API_PREFIX=/api/controller/v2` kullanın. Yalnızca okuma (GET) yapılır; token için *Read* scope yeterlidir.
+
+AAP API'si playbook dosya içeriğini sunmaz; template analizi job template **tanımı** (envanter, credential, extra_vars, survey,
+verbosity, timeout, execution environment, bildirimler...) üzerinden yapılır. Playbook YAML'ı editöre yapıştırılarak ayrıca analiz edilebilir.
+
+## Loglar
+
+GenAI ve AAP'ye yapılan her çağrı:
+- arayüzde **AI Logları** ekranında (son 200 kayıt),
+- `logs/ai-YYYY-MM-DD.jsonl` dosyasında (container'da `/opt/morpheus-ai/logs` dizinine bağlı),
+- `journalctl -u morpheus-ai` çıktısında tek satırlık özet olarak
+
+görünür. Parola ve secret'lar tamamen, token/client-id'ler ilk 4 karakter dışında maskelenir.
 
 ## AI bağlantısı (GenAI gateway)
 
@@ -81,7 +99,7 @@ podman run -d --name morpheus-ai --user root -p 3000:3000 --env-file .env ghcr.i
    - Header'lar `PREFIX_HEADER_ADI` biçiminde yazılır: `CHAT_H_CLIENT_SESSION_ID` → `client-session-id`
    - `{{uuid}}` her istekte yeni UUID üretir
 2. `npm start` — `.env` doluysa sunucu otomatik **GENAI** moduna geçer.
-3. *Ayarlar → Token al & test et* ile bağlantıyı doğrulayın.
+3. *Ayarlar → Bağlantıları test et* ile doğrulayın.
 
 Token sunucuda cache'lenir, süresi dolunca veya 401/403 alınınca otomatik yenilenir. Token ve header'lar tarayıcıya hiç gönderilmez.
 Kurum içi sertifika için `NODE_EXTRA_CA_CERTS=/yol/kurum-ca.pem` kullanın.
@@ -101,12 +119,15 @@ Beklenen uç noktalar ve veri şekilleri `public/js/api.js` içindeki `API_CONTR
 ```
 server.js            statik sunucu + API yönlendirme (genai / proxy / demo)
 lib/genai.js         TMS token + chat/completions istemcisi
+lib/aap.js           Ansible Automation Platform API istemcisi
+lib/http.js          ortak HTTP istemcisi (loglu)
+lib/logger.js        istek/cevap logları (maskeli)
 lib/analyzer.js      prompt oluşturma ve AI cevabını AnalysisResult'a dönüştürme
 lib/demo.js          demo kural motoru
 lib/env.js           .env yükleyici
 mock/                demo standartlar, template'ler, workflow'lar
 public/index.html    arayüz iskeleti
-public/styles.css    Morpheus / Matrix teması
+public/styles.css    AAP (PatternFly) görünümü
 public/js/api.js     API katmanı (backend bağlantısı burada)
 public/js/ui.js      ortak UI yardımcıları
 public/js/app.js     ekran mantığı

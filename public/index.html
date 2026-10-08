@@ -6,81 +6,53 @@
   <title>MorpheusAI</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700&family=Red+Hat+Text:wght@400;500;700&family=Red+Hat+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <canvas id="rain" aria-hidden="true"></canvas>
+  <!-- ============ MASTHEAD ============ -->
+  <header class="masthead">
+    <button class="icon-btn burger" id="menuBtn" aria-label="Menü">☰</button>
+    <a class="brand" href="#/dashboard">
+      <img src="favicon.svg" alt="" width="26" height="26" />
+      <span><b>Morpheus</b>AI</span>
+      <small>Ansible Uyum Denetçisi</small>
+    </a>
+    <div class="masthead-right">
+      <span class="chip" id="aiChip" title="AI bağlantısı"><i></i><span>AI</span></span>
+      <span class="chip" id="aapChip" title="Ansible Automation Platform"><i></i><span>AAP</span></span>
+    </div>
+  </header>
 
-  <div class="app">
+  <div class="layout">
     <!-- ============ SIDEBAR ============ -->
-    <aside class="sidebar" id="sidebar">
-      <div class="brand">
-        <div class="brand-mark">
-          <span class="pill red"></span><span class="pill blue"></span>
-        </div>
-        <div>
-          <div class="brand-name">Morpheus<span>AI</span></div>
-          <div class="brand-sub">Ansible Uyum Denetçisi</div>
-        </div>
-      </div>
+    <nav class="sidebar" id="sidebar">
+      <a href="#/dashboard" data-route="dashboard">Genel Bakış</a>
+      <div class="nav-group">Analiz</div>
+      <a href="#/template" data-route="template">Template Analizi</a>
+      <a href="#/workflow" data-route="workflow">Workflow Analizi</a>
+      <a href="#/oracle" data-route="oracle">Morpheus'a Sor</a>
+      <div class="nav-group">Yönetim</div>
+      <a href="#/standards" data-route="standards">Standartlar</a>
+      <a href="#/logs" data-route="logs">AI Logları</a>
+      <a href="#/settings" data-route="settings">Ayarlar</a>
+    </nav>
 
-      <nav class="nav">
-        <a href="#/dashboard" data-route="dashboard"><i>◈</i> Komuta Merkezi</a>
-        <a href="#/template" data-route="template"><i>⌘</i> Template Analizi</a>
-        <a href="#/workflow" data-route="workflow"><i>⟁</i> Workflow Analizi</a>
-        <a href="#/oracle" data-route="oracle"><i>◉</i> Morpheus'a Sor</a>
-        <a href="#/standards" data-route="standards"><i>☰</i> Standartlar</a>
-        <a href="#/settings" data-route="settings"><i>⚙</i> Ayarlar</a>
-      </nav>
-
-      <div class="sidebar-foot">
-        <div class="conn" id="connStatus"><span class="dot"></span><span class="label">Bağlanıyor…</span></div>
-        <blockquote class="quote" id="quote"></blockquote>
-      </div>
-    </aside>
-
-    <!-- ============ MAIN ============ -->
-    <main class="main">
-      <header class="topbar">
-        <button class="icon-btn menu-btn" id="menuBtn" aria-label="Menü">☰</button>
-        <div class="crumbs" id="crumbs">Komuta Merkezi</div>
-        <div class="topbar-right">
-          <button class="btn ghost sm" id="rainToggle" title="Matrix efektini aç/kapat">◫ Matrix</button>
-          <span class="mode-badge" id="modeBadge">DEMO</span>
-        </div>
-      </header>
-
+    <main class="page">
       <!-- ---------- DASHBOARD ---------- -->
       <section class="view" data-view="dashboard">
-        <div class="hero">
-          <div class="hero-text">
-            <p class="eyebrow mono">&gt; wake up, operator_</p>
-            <h1>Template'lerinin gerçeğini görmeye hazır mısın?</h1>
-            <p class="muted">Morpheus, Ansible Job Template ve Workflow'larını kurumsal standartlarınıza göre tarar; eksikleri, riskleri ve düzeltmeleri gösterir.</p>
-            <div class="hero-actions">
-              <a class="btn red" href="#/template"><span class="pill-ico red"></span> Kırmızı Hap · Template Analizi</a>
-              <a class="btn blue" href="#/workflow"><span class="pill-ico blue"></span> Mavi Hap · Workflow Analizi</a>
-            </div>
-          </div>
-          <div class="hero-gauge" id="heroGauge"></div>
+        <div class="page-head">
+          <div><h1>Genel Bakış</h1><p>Job template ve workflow'ların kurumsal standartlara uyum durumu.</p></div>
+          <span class="label" id="sourceLabel"></span>
         </div>
-
         <div class="kpis" id="kpis"></div>
-
         <div class="grid-2">
           <div class="card">
-            <div class="card-head">
-              <h3>Job Template'ler</h3>
-              <span class="muted sm">AWX / AAP</span>
-            </div>
+            <div class="card-head"><h3>Job Template'ler</h3><input id="tplFilter" class="input sm" placeholder="Filtrele…" /></div>
             <div class="table-wrap"><table class="table" id="tplTable"></table></div>
           </div>
           <div class="card">
-            <div class="card-head">
-              <h3>Workflow'lar</h3>
-              <span class="muted sm">Akış uyumu</span>
-            </div>
+            <div class="card-head"><h3>Workflow'lar</h3><input id="wfFilter" class="input sm" placeholder="Filtrele…" /></div>
             <div class="table-wrap"><table class="table" id="wfTable"></table></div>
           </div>
         </div>
@@ -88,35 +60,33 @@
 
       <!-- ---------- TEMPLATE ---------- -->
       <section class="view" data-view="template">
+        <div class="page-head">
+          <div><h1>Template Analizi</h1><p>AAP job template tanımını veya playbook YAML'ını standartlara göre analiz edin.</p></div>
+        </div>
         <div class="split">
-          <div class="card editor-card">
-            <div class="card-head">
-              <h3>Template Girdisi</h3>
-              <div class="row gap-sm">
-                <select id="tplSelect" class="input sm"><option value="">AWX'ten seç…</option></select>
-                <label class="btn ghost sm">⇪ Dosya<input type="file" id="tplFile" accept=".yml,.yaml,.txt" hidden /></label>
-                <button class="btn ghost sm" id="tplClear">Temizle</button>
-              </div>
+          <div class="card">
+            <div class="toolbar">
+              <select id="tplSelect" class="input"><option value="">Job template seçin…</option></select>
+              <label class="btn secondary">Dosya yükle<input type="file" id="tplFile" accept=".yml,.yaml,.json,.txt" hidden /></label>
+              <button class="btn link" id="tplClear">Temizle</button>
             </div>
             <div class="editor">
               <pre class="gutter" id="tplGutter">1</pre>
-              <textarea id="tplInput" spellcheck="false" placeholder="# Ansible playbook / template YAML içeriğini buraya yapıştır…"></textarea>
+              <textarea id="tplInput" spellcheck="false" placeholder="AAP'den bir job template seçin ya da playbook YAML'ını buraya yapıştırın…"></textarea>
             </div>
-            <div class="rule-bar">
-              <div class="muted sm">Uygulanacak kurallar</div>
+            <details class="rules">
+              <summary>Uygulanacak kurallar <span class="muted" id="tplRuleCount"></span></summary>
               <div class="chips" id="tplRules"></div>
-            </div>
+            </details>
             <div class="prompt-bar">
               <input id="tplPrompt" class="input" placeholder="Ek talimat (opsiyonel) — ör. 'Güvenlik bulgularına odaklan'" />
-              <button class="btn primary" id="tplAnalyze">▶ Analiz Et</button>
+              <button class="btn primary" id="tplAnalyze">Analiz et</button>
             </div>
           </div>
-
-          <div class="card result-card" id="tplResult">
+          <div class="card" id="tplResult">
             <div class="empty">
-              <div class="empty-ico">⌘</div>
-              <p>Bir template yükle ve <b>Analiz Et</b>'e bas.</p>
-              <p class="muted sm">Morpheus standart ihlallerini, eksik bölümleri ve düzeltme önerilerini burada gösterecek.</p>
+              <h4>Henüz analiz yok</h4>
+              <p>Bir template seçip <b>Analiz et</b>'e basın. Bulgular, eksikler ve düzeltme önerileri burada görünür.</p>
             </div>
           </div>
         </div>
@@ -124,14 +94,14 @@
 
       <!-- ---------- WORKFLOW ---------- -->
       <section class="view" data-view="workflow">
+        <div class="page-head">
+          <div><h1>Workflow Analizi</h1><p>Workflow akışını görselleştirin ve akış standartlarına göre denetleyin.</p></div>
+        </div>
         <div class="card">
-          <div class="card-head">
-            <h3>Workflow Akışı</h3>
-            <div class="row gap-sm">
-              <select id="wfSelect" class="input sm"><option value="">Workflow seç…</option></select>
-              <button class="btn ghost sm" id="wfJsonToggle">{ } JSON</button>
-              <button class="btn primary sm" id="wfAnalyze">▶ Akışı Analiz Et</button>
-            </div>
+          <div class="toolbar">
+            <select id="wfSelect" class="input"><option value="">Workflow seçin…</option></select>
+            <button class="btn secondary" id="wfJsonToggle">JSON</button>
+            <button class="btn primary" id="wfAnalyze">Akışı analiz et</button>
           </div>
           <div class="wf-legend">
             <span><i class="lg success"></i>success</span>
@@ -142,31 +112,35 @@
             <span><i class="nt approval"></i>approval</span>
             <span><i class="nt project_sync"></i>project sync</span>
             <span><i class="nt inventory_sync"></i>inventory sync</span>
+            <span><i class="nt workflow"></i>alt workflow</span>
             <span><i class="nt notification"></i>bildirim</span>
           </div>
-          <div class="wf-canvas" id="wfCanvas">
-            <div class="empty"><div class="empty-ico">⟁</div><p>Görselleştirmek için bir workflow seç.</p></div>
-          </div>
+          <div class="wf-canvas" id="wfCanvas"><div class="empty"><p>Görselleştirmek için bir workflow seçin.</p></div></div>
           <div class="wf-json hidden" id="wfJsonWrap">
             <textarea id="wfJson" class="code-input" spellcheck="false"></textarea>
-            <div class="row gap-sm end"><button class="btn ghost sm" id="wfJsonApply">Diyagramı güncelle</button></div>
+            <div class="toolbar end"><button class="btn secondary" id="wfJsonApply">Diyagramı güncelle</button></div>
           </div>
         </div>
-        <div class="card result-card" id="wfResult"></div>
+        <div class="card hidden" id="wfResult"></div>
       </section>
 
-      <!-- ---------- ORACLE / CHAT ---------- -->
+      <!-- ---------- CHAT ---------- -->
       <section class="view" data-view="oracle">
-        <div class="chat card">
+        <div class="page-head">
+          <div><h1>Morpheus'a Sor</h1><p>Template/workflow seçin veya YAML yapıştırın; Morpheus standartlara göre yorumlasın.</p></div>
+        </div>
+        <div class="card chat">
           <div class="chat-log" id="chatLog"></div>
           <div class="chat-suggest" id="chatSuggest"></div>
           <form class="chat-input" id="chatForm">
-            <label class="ctx-toggle" title="Son analiz sonucunu bağlam olarak gönder">
-              <input type="checkbox" id="chatCtx" checked /> <span>Son analizi bağlam olarak ekle</span>
-            </label>
+            <div class="toolbar">
+              <label class="muted sm" for="chatCtx">Bağlam</label>
+              <select id="chatCtx" class="input sm"></select>
+              <button type="button" class="btn link sm" id="chatClear">Sohbeti temizle</button>
+            </div>
             <div class="chat-row">
-              <textarea id="chatText" rows="1" placeholder="Morpheus'a sor… (Shift+Enter yeni satır)"></textarea>
-              <button class="btn primary" type="submit">Gönder ➤</button>
+              <textarea id="chatText" rows="2" placeholder="Mesajınızı yazın… (Enter gönderir, Shift+Enter yeni satır)"></textarea>
+              <button class="btn primary" type="submit" id="chatSend">Gönder</button>
             </div>
           </form>
         </div>
@@ -174,76 +148,86 @@
 
       <!-- ---------- STANDARDS ---------- -->
       <section class="view" data-view="standards">
+        <div class="page-head">
+          <div><h1>Standartlar</h1><p>Analizlerde kullanılan kurumsal kurallar. Kapattığınız kurallar analizlere gönderilmez.</p></div>
+          <button class="btn primary" id="stdAdd">Kural ekle</button>
+        </div>
         <div class="card">
-          <div class="card-head">
-            <h3>Kurumsal Standartlar</h3>
-            <div class="row gap-sm">
-              <div class="seg" id="stdScope">
-                <button data-scope="all" class="on">Tümü</button>
-                <button data-scope="template">Template</button>
-                <button data-scope="workflow">Workflow</button>
-              </div>
-              <input id="stdSearch" class="input sm" placeholder="Kural ara…" />
-              <button class="btn primary sm" id="stdAdd">+ Kural</button>
+          <div class="toolbar">
+            <div class="seg" id="stdScope">
+              <button data-scope="all" class="on">Tümü</button>
+              <button data-scope="template">Template</button>
+              <button data-scope="workflow">Workflow</button>
             </div>
+            <input id="stdSearch" class="input" placeholder="Kural ara…" />
           </div>
           <div id="stdList"></div>
         </div>
       </section>
 
+      <!-- ---------- LOGS ---------- -->
+      <section class="view" data-view="logs">
+        <div class="page-head">
+          <div><h1>AI Logları</h1><p>GenAI ve AAP'ye giden istekler ile dönen cevaplar. Gizli alanlar maskelenir.</p></div>
+        </div>
+        <div class="card">
+          <div class="toolbar">
+            <div class="seg" id="logService">
+              <button data-service="" class="on">Tümü</button>
+              <button data-service="genai">GenAI</button>
+              <button data-service="aap">AAP</button>
+            </div>
+            <button class="btn secondary" id="logRefresh">Yenile</button>
+            <label class="muted sm"><input type="checkbox" id="logAuto" /> 5 sn'de bir yenile</label>
+          </div>
+          <div class="table-wrap"><table class="table" id="logTable"></table></div>
+        </div>
+      </section>
+
       <!-- ---------- SETTINGS ---------- -->
       <section class="view" data-view="settings">
-        <div class="card narrow">
-          <div class="card-head">
-            <h3>GenAI Gateway</h3>
-            <button class="btn ghost sm" type="button" id="testToken">⟳ Token al &amp; test et</button>
+        <div class="page-head">
+          <div><h1>Ayarlar</h1><p>Bağlantılar sunucudaki <code>.env</code> dosyasından okunur; değişiklik sonrası servisi yeniden başlatın.</p></div>
+          <button class="btn primary" id="testConn">Bağlantıları test et</button>
+        </div>
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head"><h3>GenAI</h3></div>
+            <div id="genaiStatus"></div>
           </div>
-          <div id="genaiStatus"></div>
-          <div class="flow">
-            <span class="flow-step">.env</span><span class="flow-arrow">→</span>
-            <span class="flow-step">TMS token</span><span class="flow-arrow">→</span>
-            <span class="flow-step">Bearer + header'lar</span><span class="flow-arrow">→</span>
-            <span class="flow-step">chat/completions</span>
+          <div class="card">
+            <div class="card-head"><h3>Ansible Automation Platform</h3></div>
+            <div id="aapStatus"></div>
           </div>
-          <p class="muted sm">Token, URL ve header'lar sunucu tarafında <code>.env</code> dosyasından okunur; tarayıcıya hiç gönderilmez. Şablon için <code>.env.example</code>'a bakın.</p>
         </div>
         <div class="card narrow">
-          <div class="card-head"><h3>Arayüz Ayarları</h3></div>
+          <div class="card-head"><h3>Arayüz</h3></div>
           <form id="settingsForm" class="form">
             <label>API Base URL
               <input class="input" name="apiBase" placeholder="/api" />
-              <small>Varsayılan <code>/api</code> — MorpheusAI sunucusu. Genelde değiştirmenize gerek yoktur.</small>
-            </label>
-            <label>MorpheusAI API Anahtarı (opsiyonel)
-              <input class="input" name="apiKey" type="password" placeholder="boş bırakılabilir" autocomplete="off" />
-              <small>Yalnızca proxy modunda ayrı bir backend kullanıyorsanız. GenAI token'ı bununla ilgili değildir.</small>
+              <small>Varsayılan <code>/api</code>. Genelde değiştirmenize gerek yoktur.</small>
             </label>
             <label>Model (opsiyonel)
               <input class="input" name="model" placeholder="boş = .env'deki CHAT_MODEL" />
             </label>
-            <label>Sistem Promptu
-              <textarea class="input" name="systemPrompt" rows="5"></textarea>
-              <small>Chat ve analiz isteklerine <code>systemPrompt</code> alanı olarak eklenir.</small>
+            <label>Ek sistem talimatı
+              <textarea class="input" name="systemPrompt" rows="4"></textarea>
+              <small>AI'a gönderilen sistem mesajına eklenir.</small>
             </label>
-            <div class="row gap-sm">
-              <button class="btn primary" type="submit">Kaydet</button>
-              <button class="btn ghost" type="button" id="testConn">Bağlantıyı Test Et</button>
-              <span class="muted sm" id="settingsMsg"></span>
-            </div>
+            <div class="toolbar"><button class="btn primary" type="submit">Kaydet</button><span class="muted sm" id="settingsMsg"></span></div>
           </form>
         </div>
         <div class="card narrow">
-          <div class="card-head"><h3>API Sözleşmesi</h3><span class="muted sm">Backend ekibi için</span></div>
+          <div class="card-head"><h3>API sözleşmesi</h3></div>
           <pre class="contract" id="contract"></pre>
         </div>
       </section>
     </main>
   </div>
 
-  <!-- Modal -->
   <div class="modal hidden" id="modal">
     <div class="modal-box">
-      <div class="card-head"><h3 id="modalTitle"></h3><button class="icon-btn" id="modalClose">✕</button></div>
+      <div class="card-head"><h3 id="modalTitle"></h3><button class="icon-btn" id="modalClose" aria-label="Kapat">✕</button></div>
       <div id="modalBody"></div>
     </div>
   </div>
