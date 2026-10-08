@@ -73,7 +73,7 @@ podman run -d --name morpheus-ai --user root -p 3000:3000 --env-file .env ghcr.i
 ## Ansible Automation Platform bağlantısı
 
 `.env` içinde `AAP_URL` ve `AAP_TOKEN` (veya `AAP_USERNAME`/`AAP_PASSWORD`) tanımlanınca template ve workflow listeleri AAP'den okunur.
-AAP 2.5+ için `AAP_API_PREFIX=/api/controller/v2` kullanın. Yalnızca okuma (GET) yapılır; token için *Read* scope yeterlidir.
+API yolu otomatik algılanır (AAP 2.5/2.6: `/api/controller/v2`, 2.4/AWX: `/api/v2`); gerekirse `AAP_API_PREFIX` ile sabitlenebilir. Yalnızca okuma (GET) yapılır; token için *Read* scope yeterlidir.
 
 AAP API'si playbook dosya içeriğini sunmaz; template analizi job template **tanımı** (envanter, credential, extra_vars, survey,
 verbosity, timeout, execution environment, bildirimler...) üzerinden yapılır. Playbook YAML'ı editöre yapıştırılarak ayrıca analiz edilebilir.

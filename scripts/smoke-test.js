@@ -228,10 +228,14 @@ function fakeAap() {
   const seen = { auth: null };
   const json = (res, code, obj) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
   const page = (results, next = null) => ({ count: results.length, next, previous: null, results });
+  // AAP 2.6 benzeri: controller API yalnızca /api/controller/v2 altında, /api/v2 yok; ping kimlik doğrulamasız
   const srv = http.createServer((req, res) => {
     seen.auth = req.headers.authorization;
+    const raw = req.url.split("?")[0];
+    if (!raw.startsWith("/api/controller/v2/")) return json(res, 404, { detail: "not found" });
+    const p = raw.replace("/api/controller/v2/", "/api/v2/");
+    if (p === "/api/v2/ping/") return json(res, 200, { version: "4.7.0" });
     if (req.headers.authorization !== "Bearer aap-tok") return json(res, 401, { detail: "unauthorized" });
-    const p = req.url.split("?")[0];
     const q = new URL(req.url, "http://x").searchParams;
     const routes = {
       "/api/v2/me/": () => page([{ username: "morpheus-bot" }]),
@@ -241,7 +245,7 @@ function fakeAap() {
           ? page([{ id: 8, name: "Payment API | Deploy", modified: "2026-10-01T00:00:00Z", summary_fields: {} }])
           : page([{ id: 7, name: "nginx kurulum", playbook: "nginx.yml", modified: "2026-10-05T10:00:00Z",
                     summary_fields: { project: { name: "infra" }, inventory: { name: "PROD-WEB" }, organization: { name: "Ops" } } }],
-                 "/api/v2/job_templates/?page=2&page_size=200"),
+                 "/api/controller/v2/job_templates/?page=2&page_size=200"),
       "/api/v2/job_templates/7/": () => ({
         id: 7, name: "nginx kurulum", description: "", playbook: "nginx.yml", verbosity: 3, timeout: 0,
         extra_vars: "db_password: S3cret!\nport: 80", allow_simultaneous: true, survey_enabled: false,
@@ -280,11 +284,13 @@ async function aapSuite() {
     MORPHEUS_MODE: "demo",
     AAP_URL: "http://127.0.0.1:3994",
     AAP_TOKEN: "aap-tok",
+    AAP_API_PREFIX: "",
   });
   try {
     await waitFor(base);
     const health = await (await fetch(`${base}/api/health?deep=1`)).json();
     assert(health.catalog === "aap" && health.aap.check === "ok" && health.aap.user === "morpheus-bot", "AAP bağlantısı doğrulandı (/me, /ping)");
+    assert(health.aap.apiPrefix === "/api/controller/v2", "AAP 2.6 API yolu otomatik algılandı (/api/controller/v2)");
 
     const list = await (await fetch(`${base}/api/templates`)).json();
     assert(list.length === 2 && list[0].inventory === "PROD-WEB" && list[0].project === "infra", "job template listesi sayfalı okunup eşlendi");

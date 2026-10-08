@@ -120,8 +120,8 @@ async function health(url) {
   const deep = Boolean(url.searchParams.get("deep"));
   const out = { status: "ok", mode: MODE, catalog: CATALOG, aap: aap.status() };
   if (CATALOG === "aap" && deep) {
-    try { out.aap = { ...out.aap, check: "ok", ...(await aap.check()) }; }
-    catch (e) { out.status = "degraded"; out.aap = { ...out.aap, check: "failed", error: e.message }; }
+    try { const info = await aap.check(); out.aap = { ...aap.status(), check: "ok", ...info }; }
+    catch (e) { out.status = "degraded"; out.aap = { ...aap.status(), check: "failed", error: e.message }; }
   }
   if (MODE === "proxy") out.backend = AI_BACKEND_URL;
   if (MODE === "genai") {
