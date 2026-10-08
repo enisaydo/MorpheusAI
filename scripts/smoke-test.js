@@ -21,7 +21,7 @@ function assert(cond, msg) {
 
 function startServer(port, extraEnv) {
   const env = {
-    ...process.env, PORT: String(port), AI_BACKEND_URL: "", AI_LOG_FILE: "false", AAP_URL: "",
+    ...process.env, PORT: String(port), AI_BACKEND_URL: "", AI_LOG_FILE: "false", AAP_URL: "", LDAP_URL: "",
     MORPHEUS_DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), "morpheus-test-")),
     ...extraEnv,
   };
@@ -357,11 +357,136 @@ async function aapSuite() {
   }
 }
 
+/* ------------------------------------------------------------------ */
+
+/** Sahte LDAP (AD benzeri). Boş parolalı bind'i AD gibi BAŞARILI sayar — uygulamanın reddetmesi gerekir. */
+function fakeLdap() {
+  const L = require("../lib/ldap");
+  const GROUP = "CN=Morpheus Users,OU=Groups,DC=test,DC=local";
+  const ADMINS = "CN=Morpheus Admins,OU=Groups,DC=test,DC=local";
+  const users = {
+    ali: { dn: "CN=Ali Veli,OU=Users,DC=test,DC=local", pw: "dogru", display: "Ali Veli", groups: [GROUP] },
+    yonetici: { dn: "CN=Yonetici,OU=Users,DC=test,DC=local", pw: "admin123", display: "Sistem Yöneticisi", groups: [GROUP, ADMINS] },
+    disari: { dn: "CN=Disari,OU=Users,DC=test,DC=local", pw: "x1", display: "Dışarıdan", groups: [] },
+    kilit: { dn: "CN=Kilit,OU=Users,DC=test,DC=local", pw: "k", display: "Kilit", groups: [GROUP] },
+  };
+  const seen = { filters: [] };
+  const msg = (id, op) => L.seq(0x30, [L.int(id), op]);
+  const result = (tag, code) => L.seq(tag, [L.int(code, 0x0a), L.str(""), L.str(code ? "80090308: LdapErr: DSID-0C09042A, data 52e" : "")]);
+  const srv = require("net").createServer((sock) => {
+    let buf = Buffer.alloc(0);
+    sock.on("data", (d) => {
+      buf = Buffer.concat([buf, d]);
+      for (let m; (m = L.readTlv(buf));) {
+        buf = buf.subarray(m.next);
+        const [idT, op] = L.children(m.value);
+        const id = L.toInt(idT.value);
+        if (op.tag === 0x60) { // bind
+          const [, name, pw] = L.children(op.value);
+          const dn = name.value.toString(), pass = pw.value.toString();
+          const ok = (dn === "CN=svc,DC=test,DC=local" && pass === "svcpw") || pass === "" ||
+            Object.values(users).some((u) => u.dn === dn && u.pw === pass);
+          sock.write(msg(id, result(0x61, ok ? 0 : 49)));
+        } else if (op.tag === 0x63) { // search
+          const parts = L.children(op.value);
+          const filterBytes = op.value.subarray(0); // ham filtre bayt kontrolü için
+          const findEq = (t) => t.tag === 0xa3 ? [L.children(t.value).map((x) => x.value.toString())]
+            : [0xa0, 0xa1].includes(t.tag) ? L.children(t.value).flatMap(findEq) : [];
+          const eqs = findEq(parts[6]);
+          seen.filters.push(eqs);
+          const sam = eqs.find(([a]) => a.toLowerCase() === "samaccountname")?.[1];
+          const u = users[sam];
+          sock.write(msg(id, L.seq(0x73, [L.str("ldap://ForestDnsZones.test.local/DC=ForestDnsZones,DC=test,DC=local")])));
+          if (u) {
+            const attr = (k, vals) => L.seq(0x30, [L.str(k), L.seq(0x31, vals.map((v) => L.str(v)))]);
+            sock.write(msg(id, L.seq(0x64, [L.str(u.dn), L.seq(0x30, [
+              attr("sAMAccountName", [sam]), attr("displayName", [u.display]), attr("memberOf", u.groups), attr("mail", [`${sam}@test.local`]),
+            ])])));
+          }
+          sock.write(msg(id, result(0x65, 0)));
+          void filterBytes;
+        }
+      }
+    });
+    sock.on("error", () => {});
+  });
+  return { srv, seen, GROUP, ADMINS };
+}
+
+async function ldapSuite() {
+  console.log("\n[LDAP girişi — sahte Active Directory]");
+  const { srv: ldap, seen, GROUP, ADMINS } = fakeLdap();
+  await new Promise((r) => ldap.listen(3989, "127.0.0.1", r));
+  const base = "http://127.0.0.1:3987";
+  const srv = startServer(3987, {
+    MORPHEUS_MODE: "demo",
+    LDAP_URL: "ldap://127.0.0.1:3989",
+    LDAP_BIND_DN: "CN=svc,DC=test,DC=local",
+    LDAP_BIND_PASSWORD: "svcpw",
+    LDAP_SEARCH_BASE: "DC=test,DC=local",
+    LDAP_USER_FILTER: "(&(objectClass=user)(sAMAccountName={{username}}))",
+    LDAP_REQUIRED_GROUP: GROUP,
+    LDAP_ADMIN_GROUP: ADMINS.toLowerCase().replace(/,/g, ", "), // büyük/küçük harf ve boşluk farkı tolere edilmeli
+    LDAP_USER_DN_TEMPLATE: "",
+  });
+  const login = (username, password) =>
+    fetch(`${base}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }) });
+  const cookieOf = (r) => (r.headers.get("set-cookie") || "").split(";")[0];
+  const withCookie = (c, p, opts = {}) => fetch(base + p, { ...opts, headers: { "Content-Type": "application/json", Cookie: c, ...(opts.headers || {}) } });
+  try {
+    await waitFor(base);
+    assert((await fetch(`${base}/api/templates`)).status === 401, "oturumsuz API çağrısı 401");
+    const me0 = await fetch(`${base}/api/auth/me`);
+    assert(me0.status === 401 && (await me0.json()).enabled === true, "giriş zorunlu olduğu bildirildi");
+    assert((await fetch(`${base}/api/health?deep=1`)).status === 401, "derin sağlık kontrolü oturum istiyor");
+
+    assert((await login("ali", "yanlis")).status === 401, "yanlış parola reddedildi");
+    assert((await login("ali", "")).status === 400, "boş parola reddedildi (AD anonim bind açığı)");
+    assert((await login("*)(sAMAccountName=*", "x")).status === 401, "filtre enjeksiyonu denemesi reddedildi");
+    assert(seen.filters.some((f) => f.some(([a, v]) => a === "sAMAccountName" && v === "*)(sAMAccountName=*")),
+      "kullanıcı adı LDAP filtresine kaçışlanarak (literal) gönderildi");
+
+    const ok = await login("ali", "dogru");
+    const aliCookie = cookieOf(ok);
+    const body = await ok.json();
+    assert(ok.ok && body.user.displayName === "Ali Veli" && body.user.isAdmin === false, "doğru parolayla giriş (servis hesabı → arama → kullanıcı bind)");
+    assert(/HttpOnly/.test(ok.headers.get("set-cookie")) && /SameSite=Lax/.test(ok.headers.get("set-cookie")), "oturum çerezi HttpOnly + SameSite");
+    assert((await withCookie(aliCookie, "/api/templates")).ok, "oturumla API erişimi");
+    const today = await (await withCookie(aliCookie, "/api/usage/today", { headers: { "X-Morpheus-User": encodeURIComponent("sahte") } })).json();
+    assert(today.user === "ali", "token raporlarında kullanıcı LDAP oturumundan alındı (header taklidi yok sayıldı)");
+    const lim = await withCookie(aliCookie, "/api/limits", { method: "POST", body: JSON.stringify({ dailyLimit: 5 }) });
+    assert(lim.status === 403, "yönetici olmayan kullanıcı limit değiştiremedi");
+
+    const adm = await login("yonetici", "admin123");
+    const admBody = await adm.json();
+    assert(admBody.user.isAdmin === true, "yönetici grubu tanındı (DN karşılaştırması büyük/küçük harf duyarsız)");
+    assert((await withCookie(cookieOf(adm), "/api/limits", { method: "POST", body: JSON.stringify({ dailyLimit: 5000 }) })).ok, "yönetici limit değiştirebildi");
+
+    const outsider = await login("disari", "x1");
+    assert(outsider.status === 403, "gerekli LDAP grubunda olmayan kullanıcı reddedildi");
+
+    const [p, mac] = aliCookie.split("=")[1].split(".");
+    const forged = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(p, "base64url")), a: true })).toString("base64url");
+    assert((await withCookie(`morpheus_session=${forged}.${mac}`, "/api/templates")).status === 401, "kurcalanmış çerez reddedildi");
+
+    for (let i = 0; i < 5; i++) await login("kilit", "yanlis");
+    const locked = await login("kilit", "k");
+    assert(locked.status === 429, "5 hatalı denemeden sonra hesap geçici kilitlendi");
+
+    const out = await withCookie(aliCookie, "/api/auth/logout", { method: "POST", body: "{}" });
+    assert(/Max-Age=0/.test(out.headers.get("set-cookie")), "çıkışta çerez silindi");
+  } finally {
+    srv.kill();
+    ldap.close();
+  }
+}
+
 (async () => {
   try {
     await demoSuite();
     await genaiSuite();
     await aapSuite();
+    await ldapSuite();
     console.log("\nSmoke test başarılı.");
   } catch (e) {
     console.error(`\n✗ ${e.message}`);

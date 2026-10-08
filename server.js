@@ -25,15 +25,26 @@ const logger = require("./lib/logger");
 const prompts = require("./lib/prompts");
 const usage = require("./lib/usage");
 
-/* Kullanıcı kimliği: önce güvenilen proxy header'ı (USER_HEADER), yoksa arayüzün gönderdiği X-Morpheus-User */
+const auth = require("./lib/auth");
+
+/* Kullanıcı kimliği:
+ *   LDAP açıksa → oturumdaki kullanıcı (doğrulanmış)
+ *   değilse     → güvenilen proxy header'ı (USER_HEADER) veya arayüzün gönderdiği X-Morpheus-User */
 const USER_HEADER = (process.env.USER_HEADER || "").toLowerCase();
-function whoIs(req) {
+const clientIp = (req) => String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim();
+function whoIs(req, session) {
+  const ip = clientIp(req);
+  if (session) return { user: session.username, displayName: session.displayName, isAdmin: session.isAdmin, ip };
   const raw = (USER_HEADER && req.headers[USER_HEADER]) || req.headers["x-morpheus-user"] || "";
   let user = "";
   try { user = decodeURIComponent(String(raw)).trim().slice(0, 80); } catch { user = String(raw).slice(0, 80); }
-  const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim();
-  return { user: user || `anonim (${ip})`, ip };
+  return { user: user || `anonim (${ip})`, ip, isAdmin: true };
 }
+
+/* LDAP açıkken oturum gerektirmeyen uç noktalar */
+const PUBLIC_ROUTES = new Set(["POST /api/auth/login", "POST /api/auth/logout", "GET /api/auth/me", "GET /api/health"]);
+/* Yönetici yetkisi gereken uç noktalar (LDAP_ADMIN_GROUP tanımlıysa) */
+const ADMIN_ROUTES = new Set(["POST /api/limits", "POST /api/prompts"]);
 
 const PORT = process.env.PORT || 3000;
 const AI_BACKEND_URL = process.env.AI_BACKEND_URL || "";
@@ -129,7 +140,7 @@ const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function health(url) {
   const deep = Boolean(url.searchParams.get("deep"));
-  const out = { status: "ok", mode: MODE, catalog: CATALOG, aap: aap.status() };
+  const out = { status: "ok", mode: MODE, catalog: CATALOG, aap: aap.status(), auth: auth.status() };
   if (CATALOG === "aap" && deep) {
     try { const info = await aap.check(); out.aap = { ...aap.status(), check: "ok", ...info }; }
     catch (e) { out.status = "degraded"; out.aap = { ...aap.status(), check: "failed", error: e.message }; }
@@ -166,13 +177,41 @@ async function sendDetail(res, label, fetchFn) {
 
 async function handleApi(req, res, url) {
   const body = req.method === "POST" ? await readBody(req) : "";
-  if (MODE === "proxy" && url.pathname !== "/api/health") return proxy(req, res, body);
-
   let json;
   try { json = body ? JSON.parse(body) : {}; } catch { return sendJson(res, 400, { error: "Geçersiz JSON gövdesi" }); }
   const route = `${req.method} ${url.pathname}`;
+
+  /* ---- Kimlik doğrulama (LDAP) ---- */
+  const session = auth.isEnabled() ? auth.readSession(req) : null;
+  switch (route) {
+    case "POST /api/auth/login": {
+      if (!auth.isEnabled()) return sendJson(res, 400, { error: "LDAP girişi etkin değil" });
+      try {
+        const user = await auth.authenticate(json.username, json.password, clientIp(req));
+        const s = auth.createSession(user);
+        res.setHeader("Set-Cookie", auth.cookieHeader(s.value, s.maxAge));
+        return sendJson(res, 200, { enabled: true, user: { username: user.username, displayName: user.displayName, isAdmin: user.isAdmin } });
+      } catch (e) {
+        return sendJson(res, e.status || 500, { error: e.message });
+      }
+    }
+    case "POST /api/auth/logout":
+      res.setHeader("Set-Cookie", auth.cookieHeader("", 0));
+      return sendJson(res, 200, { ok: true });
+    case "GET /api/auth/me":
+      if (!auth.isEnabled()) return sendJson(res, 200, { enabled: false });
+      return session
+        ? sendJson(res, 200, { enabled: true, user: { username: session.username, displayName: session.displayName, isAdmin: session.isAdmin } })
+        : sendJson(res, 401, { enabled: true, authRequired: true, error: "Oturum açmanız gerekiyor" });
+  }
+  if (auth.isEnabled() && !session && (!PUBLIC_ROUTES.has(route) || url.searchParams.get("deep")))
+    return sendJson(res, 401, { authRequired: true, error: "Oturum açmanız gerekiyor" });
+  if (ADMIN_ROUTES.has(route) && session && !session.isAdmin)
+    return sendJson(res, 403, { error: "Bu işlem için yönetici yetkisi gerekiyor (LDAP yönetici grubu)" });
+
+  if (MODE === "proxy" && url.pathname !== "/api/health") return proxy(req, res, body);
   const ai = MODE === "genai";
-  const who = whoIs(req);
+  const who = whoIs(req, session);
 
   switch (route) {
     case "GET /api/health":
@@ -267,7 +306,9 @@ const server = http
     console.log(`\n  MorpheusAI  →  http://localhost:${PORT}`);
     console.log(`  Mod         →  ${desc}`);
     const a = aap.status();
-    console.log(`  Katalog     →  ${CATALOG === "aap" ? `AAP → ${a.host}${a.apiPrefix}` : "mock veri (AAP_URL tanımlı değil)"}\n`);
+    console.log(`  Katalog     →  ${CATALOG === "aap" ? `AAP → ${a.host}${a.apiPrefix}` : "mock veri (AAP_URL tanımlı değil)"}`);
+    const au = auth.status();
+    console.log(`  Giriş       →  ${au.enabled ? `LDAP (${au.url}, ${au.mode || "YAPILANDIRMA EKSİK"})` : "kapalı (LDAP_URL tanımlı değil)"}\n`);
   });
 
 for (const sig of ["SIGTERM", "SIGINT"])

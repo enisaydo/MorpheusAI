@@ -290,7 +290,7 @@
         <div class="card narrow">
           <div class="card-head"><h3>Arayüz</h3></div>
           <form id="settingsForm" class="form">
-            <label>Kullanıcı adınız
+            <label id="userNameField">Kullanıcı adınız
               <input class="input" name="userName" placeholder="ör. EnisA" maxlength="80" />
               <small>Token raporlarında "kim kullandı" bilgisi olarak görünür.</small>
             </label>
@@ -310,6 +310,25 @@
         </div>
       </section>
     </main>
+  </div>
+
+  <!-- ============ LDAP GİRİŞ ============ -->
+  <div class="login-screen hidden" id="loginScreen">
+    <div class="login-box">
+      <div class="login-brand"><img src="favicon.svg" alt="" width="36" height="36" /><span><b>Morpheus</b>AI</span></div>
+      <h1>Hesabınızla giriş yapın</h1>
+      <p class="muted">Kurumsal (LDAP / Active Directory) kullanıcı adı ve parolanızı kullanın.</p>
+      <form id="loginForm" class="form" autocomplete="on">
+        <label>Kullanıcı adı
+          <input class="input" name="username" autocomplete="username" required autofocus />
+        </label>
+        <label>Parola
+          <input class="input" name="password" type="password" autocomplete="current-password" required />
+        </label>
+        <div class="alert danger hidden" id="loginError"></div>
+        <button class="btn primary block" type="submit" id="loginBtn">Giriş yap</button>
+      </form>
+    </div>
   </div>
 
   <div class="modal hidden" id="modal">

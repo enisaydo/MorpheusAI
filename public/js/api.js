@@ -36,7 +36,9 @@ const Api = (() => {
     const text = await res.text();
     let data;
     try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
-    if (!res.ok) throw Object.assign(new Error(data.error || `HTTP ${res.status}`), { status: res.status });
+    // Oturum düştüyse (LDAP açık) giriş ekranını göster
+    if (res.status === 401 && data.authRequired && !path.startsWith("/auth/")) window.dispatchEvent(new Event("morpheus:auth-required"));
+    if (!res.ok) throw Object.assign(new Error(data.error || `HTTP ${res.status}`), { status: res.status, data });
     return data;
   }
 
@@ -47,6 +49,9 @@ const Api = (() => {
 
   return {
     health: (deep = false) => request(deep ? "/health?deep=1" : "/health"),
+    me: () => request("/auth/me"),
+    login: (username, password) => request("/auth/login", { method: "POST", body: { username, password } }),
+    logout: () => request("/auth/logout", { method: "POST", body: {} }),
     standards: () => request("/standards"),
     templates: () => request("/templates"),
     template: (id) => request(`/templates/${encodeURIComponent(id)}`),
@@ -78,6 +83,9 @@ GET  /api/templates         → { id, name, project, playbook, inventory, owner,
 GET  /api/templates/:id     → { ...template, content: "<AAP tanımı JSON | playbook YAML>" }
 GET  /api/workflows         → { id, name, description, owner, lastScore, nodeCount, source }[]
 GET  /api/workflows/:id     → { ...workflow, nodes: Node[], notifications?, settings? }
+POST /api/auth/login        ← { username, password }  → { user }  (LDAP; HttpOnly oturum çerezi)
+POST /api/auth/logout
+GET  /api/auth/me           → { enabled, user? }  (LDAP açık ve oturum yoksa 401)
 GET  /api/prompts           → { system, includeStandards, defaults }
 POST /api/prompts           ← { system, includeStandards }   (role: "system" içeriği, sunucuda saklanır)
 GET  /api/usage?from=&to=&user=&kind=  → { total, days[], byUser[], byKind[], records[], limits, today }

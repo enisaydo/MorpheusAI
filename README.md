@@ -79,6 +79,17 @@ API yolu otomatik algılanır (AAP 2.5/2.6: `/api/controller/v2`, 2.4/AWX: `/api
 AAP API'si playbook dosya içeriğini sunmaz; template analizi job template **tanımı** (envanter, credential, extra_vars, survey,
 verbosity, timeout, execution environment, bildirimler...) üzerinden yapılır. Playbook YAML'ı editöre yapıştırılarak ayrıca analiz edilebilir.
 
+## LDAP ile giriş
+
+`.env`'de `LDAP_URL` tanımlanınca uygulamaya giriş zorunlu olur (Active Directory / OpenLDAP).
+
+- **Servis hesabı ile (önerilen):** `LDAP_BIND_DN` + `LDAP_BIND_PASSWORD` ile bağlanılır, `LDAP_SEARCH_BASE` altında `LDAP_USER_FILTER` ile kullanıcı bulunur, kullanıcının DN'i ve parolasıyla doğrulanır.
+- **Servis hesabı olmadan:** `LDAP_USER_DN_TEMPLATE={{username}}@kurum.local` ile doğrudan bind.
+- `LDAP_REQUIRED_GROUP`: yalnızca bu grubun (doğrudan) üyeleri girebilir. `LDAP_ADMIN_GROUP`: limit ve sistem mesajını yalnızca bu grup değiştirebilir.
+- Oturum HMAC imzalı, HttpOnly çerezde tutulur (`SESSION_TTL_HOURS`). Boş parola reddedilir; 15 dakikada 5 hatalı deneme kullanıcıyı ve IP'yi 15 dakika kilitler.
+- Token raporlarındaki kullanıcı adı LDAP oturumundan alınır.
+- `ldaps://` veya `LDAP_STARTTLS=true` kullanın; düz `ldap://` parolayı ağda şifresiz gönderir.
+
 ## Token kullanımı ve limitler
 
 - Her AI çağrısı `data/usage/YYYY-MM-DD.jsonl` dosyasına kaydedilir: zaman, kullanıcı, IP, tür, sorgu metni, model, girdi/çıktı/toplam token.
@@ -130,6 +141,9 @@ lib/genai.js         TMS token + chat/completions istemcisi
 lib/aap.js           Ansible Automation Platform API istemcisi
 lib/http.js          ortak HTTP istemcisi (loglu)
 lib/logger.js        istek/cevap logları (maskeli)
+lib/ldap.js          bağımlılıksız LDAPv3 istemcisi (bind, search, StartTLS)
+lib/auth.js          LDAP girişi, oturum çerezi, kilitleme
+lib/usage.js         token kullanımı ve limitler
 lib/analyzer.js      prompt oluşturma ve AI cevabını AnalysisResult'a dönüştürme
 lib/demo.js          demo kural motoru
 lib/env.js           .env yükleyici

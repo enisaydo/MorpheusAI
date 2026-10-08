@@ -857,12 +857,75 @@ async function loadLimits() {
   } catch (e) { $("#limitInfo").textContent = e.message; }
 }
 
-/* ---- Kullanıcı adı ---- */
+/* ---- LDAP giriş ---- */
+let loginWaiters = [];
+function showLogin() {
+  $("#loginScreen").classList.remove("hidden");
+  setTimeout(() => $("#loginForm").elements.username.focus(), 30);
+  return new Promise((resolve) => loginWaiters.push(resolve));
+}
+
+async function submitLogin(e) {
+  e.preventDefault();
+  const f = e.target, err = $("#loginError"), btn = $("#loginBtn");
+  err.classList.add("hidden");
+  btn.disabled = true;
+  btn.textContent = "Doğrulanıyor…";
+  try {
+    const r = await Api.login(f.elements.username.value.trim(), f.elements.password.value);
+    State.auth = { enabled: true, user: r.user };
+    f.elements.password.value = "";
+    $("#loginScreen").classList.add("hidden");
+    loginWaiters.forEach((w) => w(r.user));
+    loginWaiters = [];
+  } catch (ex) {
+    err.textContent = ex.message;
+    err.classList.remove("hidden");
+    f.elements.password.select();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Giriş yap";
+  }
+}
+
+function applyAuthUi() {
+  const a = State.auth || {};
+  $("#userNameField").classList.toggle("hidden", Boolean(a.enabled));
+  const readOnly = a.enabled && a.user && !a.user.isAdmin;
+  ["#limitForm", "#promptForm"].forEach((id) => {
+    const f = $(id);
+    f.classList.toggle("form-disabled", Boolean(readOnly));
+    f.title = readOnly ? "Bu ayarları yalnızca yöneticiler değiştirebilir" : "";
+  });
+  renderUserChip();
+}
+
+/* ---- Kullanıcı adı / oturum ---- */
 function renderUserChip() {
-  $("span", $("#userChip")).textContent = Settings.get().userName || "Kullanıcı adı girin";
+  const a = State.auth;
+  $("span", $("#userChip")).textContent = a?.enabled
+    ? `${a.user?.displayName || a.user?.username || "Oturum yok"}${a.user?.isAdmin ? " · yönetici" : ""}`
+    : Settings.get().userName || "Kullanıcı adı girin";
+}
+
+function userMenu() {
+  const a = State.auth;
+  if (!a?.enabled) return askUserName(true);
+  modal("Oturum", `
+    <dl class="kv">
+      <dt>Ad</dt><dd>${esc(a.user?.displayName || "—")}</dd>
+      <dt>Kullanıcı adı</dt><dd class="mono">${esc(a.user?.username || "—")}</dd>
+      <dt>Yetki</dt><dd>${a.user?.isAdmin ? "Yönetici" : "Kullanıcı"}</dd>
+    </dl>
+    <div class="toolbar end"><button class="btn primary" id="logoutBtn">Çıkış yap</button></div>`);
+  $("#logoutBtn").onclick = async () => {
+    try { await Api.logout(); } catch {}
+    location.reload();
+  };
 }
 
 function askUserName(force = false) {
+  if (State.auth?.enabled) return; // LDAP açıkken kullanıcı adı oturumdan gelir
   if (Settings.get().userName && !force) return;
   modal("Kullanıcı adınız", `
     <form id="userForm" class="form">
@@ -1096,7 +1159,14 @@ function bindEvents() {
     const tr = e.target.closest("[data-usage]");
     if (tr) showUsageRecord(+tr.dataset.usage);
   };
-  $("#userChip").onclick = () => askUserName(true);
+  $("#userChip").onclick = userMenu;
+  $("#loginForm").onsubmit = submitLogin;
+  // Oturum süresi dolarsa: giriş ekranı → başarılı girişte sayfayı yenile
+  addEventListener("morpheus:auth-required", async () => {
+    if (!$("#loginScreen").classList.contains("hidden")) return;
+    await showLogin();
+    location.reload();
+  });
   $("#limitForm").onsubmit = async (e) => {
     e.preventDefault();
     try {
@@ -1166,7 +1236,13 @@ async function loadCatalog() {
   bindEvents();
   syncGutter();
   resetChat();
-  renderUserChip();
+
+  // LDAP açıksa önce giriş
+  try { State.auth = await Api.me(); }
+  catch (e) { State.auth = e.data || { enabled: false }; }
+  if (State.auth.enabled && !State.auth.user) State.auth.user = await showLogin();
+  applyAuthUi();
+
   await checkHealth();
   loadPrompts();
   refreshTokenChip();
