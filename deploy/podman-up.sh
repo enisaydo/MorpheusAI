@@ -38,6 +38,20 @@ fi
 [[ "$PORT" =~ ^[0-9]+$ ]] || { echo "Geçersiz port: '$PORT'" >&2; exit 1; }
 echo "==> Port: $PORT"
 
+# Container içinde çözülemeyen kurum içi adlar için ad→IP eşlemeleri
+#   .env:  PODMAN_ADD_HOSTS=aap-sunucu:10.1.2.3,gateway.kurum.local:10.1.2.4
+EXTRA_ARGS=""
+ADD_HOSTS="$(grep -E '^PODMAN_ADD_HOSTS=' .env | tail -n1 | cut -d= -f2- | tr -d '[:space:]"'"'" || true)"
+IFS=',' read -ra HOST_PAIRS <<< "$ADD_HOSTS"
+for pair in "${HOST_PAIRS[@]}"; do
+  [[ -z "$pair" ]] && continue
+  if [[ ! "$pair" =~ ^[A-Za-z0-9._-]+:[0-9a-fA-F.:]+$ ]]; then
+    echo "Geçersiz PODMAN_ADD_HOSTS girdisi: '$pair' (beklenen ad:ip)" >&2; exit 1
+  fi
+  EXTRA_ARGS+=" --add-host $pair"
+  echo "==> Host eşlemesi: $pair"
+done
+
 # --- Eski kurulum kalıntılarını temizle ------------------------------------
 # 1) Container'sız (doğrudan node) servis: portu tutar
 if [[ -f "$UNIT" ]] && grep -q "bin/node" "$UNIT"; then
@@ -76,7 +90,7 @@ echo "==> İmaj build ediliyor ($IMAGE)"
 # --- Çalıştır ----------------------------------------------------------------
 if [[ "${1:-}" == "--systemd" ]]; then
   echo "==> systemd servisi kuruluyor ($UNIT)"
-  sed -e "s#__APP_DIR__#$APP_DIR#g" -e "s#__PORT__#$PORT#g" -e "s#/usr/bin/podman#$PODMAN#g" \
+  sed -e "s#__APP_DIR__#$APP_DIR#g" -e "s#__PORT__#$PORT#g" -e "s#/usr/bin/podman#$PODMAN#g" -e "s#__EXTRA_ARGS__#$EXTRA_ARGS#g" \
     deploy/morpheus-ai-podman.service > "$UNIT"
   systemctl daemon-reload
   systemctl enable --now morpheus-ai
@@ -89,6 +103,7 @@ else
     --env-file .env -e PORT=3000 \
     -v "$APP_DIR/logs:/app/logs:Z" \
     -v "$APP_DIR/data:/app/data:Z" \
+    $EXTRA_ARGS \
     "$IMAGE"
 fi
 

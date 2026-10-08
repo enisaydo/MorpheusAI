@@ -18,7 +18,7 @@ ExecStart=/usr/bin/podman run --rm --name morpheus-ai --user root \
   -p __PORT__:3000 \
   --env-file __APP_DIR__/.env -e PORT=3000 \
   -v __APP_DIR__/logs:/app/logs:Z \
-  -v __APP_DIR__/data:/app/data:Z \
+  -v __APP_DIR__/data:/app/data:Z __EXTRA_ARGS__ \
   localhost/morpheus-ai:latest
 ExecStop=/usr/bin/podman stop -t 10 morpheus-ai
 
