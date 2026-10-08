@@ -67,7 +67,9 @@
           <div class="card">
             <div class="toolbar">
               <select id="tplSelect" class="input"><option value="">Job template seçin…</option></select>
-              <label class="btn secondary">Dosya yükle<input type="file" id="tplFile" accept=".yml,.yaml,.json,.txt" hidden /></label>
+              <input id="tplIdInput" class="input id-input" placeholder="AAP template ID" inputmode="numeric" />
+              <button class="btn secondary" id="tplIdGo">ID ile getir ve analiz et</button>
+              <label class="btn link">Dosya yükle<input type="file" id="tplFile" accept=".yml,.yaml,.json,.txt" hidden /></label>
               <button class="btn link" id="tplClear">Temizle</button>
             </div>
             <div class="editor">
@@ -100,7 +102,11 @@
         <div class="card">
           <div class="toolbar">
             <select id="wfSelect" class="input"><option value="">Workflow seçin…</option></select>
-            <button class="btn secondary" id="wfJsonToggle">JSON</button>
+            <span class="muted sm">veya</span>
+            <input id="wfIdInput" class="input id-input" placeholder="AAP workflow ID" inputmode="numeric" />
+            <button class="btn secondary" id="wfIdGo">ID ile getir ve analiz et</button>
+            <span class="toolbar-spacer"></span>
+            <button class="btn link" id="wfJsonToggle">JSON</button>
             <button class="btn primary" id="wfAnalyze">Akışı analiz et</button>
           </div>
           <div class="wf-legend">

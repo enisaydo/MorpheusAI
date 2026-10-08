@@ -301,6 +301,8 @@ async function aapSuite() {
 
     const wf = await (await fetch(`${base}/api/workflows/9`)).json();
     assert(wf.nodes.map((n) => n.type).join() === "project_sync,job,approval" && wf.nodes[1].failure[0] === "103", "workflow düğümleri ve dalları eşlendi");
+    const missing = await fetch(`${base}/api/workflows/12345`);
+    assert(missing.status === 404 && /AAP'de bulunamadı/.test((await missing.json()).error), "olmayan workflow ID'si için anlaşılır 404 döndü");
     const wres = await postJson(base, "/api/analyze/workflow", { workflow: wf, workflowId: "9" });
     assert(!wres.findings.some((f) => f.ruleId === "WF-005"), "workflow seviyesindeki hata bildirimi WF-005 için dikkate alındı");
 

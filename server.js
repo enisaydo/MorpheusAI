@@ -139,6 +139,20 @@ async function health(url) {
   return out;
 }
 
+/** Katalogdan tek kayıt döndürür; bulunamazsa 404 ve anlaşılır mesaj. */
+async function sendDetail(res, label, fetchFn) {
+  const notFound = CATALOG === "aap"
+    ? `${label} AAP'de bulunamadı veya bu kullanıcının erişimi yok`
+    : `${label} bulunamadı (AAP bağlı değil — .env'de AAP_URL/AAP_TOKEN tanımlayın; şu an örnek veri kullanılıyor)`;
+  try {
+    const item = await fetchFn();
+    return item ? sendJson(res, 200, item) : sendJson(res, 404, { error: notFound });
+  } catch (e) {
+    if (/\(404\)/.test(e.message)) return sendJson(res, 404, { error: `${notFound}. ${e.message}` });
+    throw e;
+  }
+}
+
 async function handleApi(req, res, url) {
   const body = req.method === "POST" ? await readBody(req) : "";
   if (MODE === "proxy" && url.pathname !== "/api/health") return proxy(req, res, body);
@@ -182,12 +196,10 @@ async function handleApi(req, res, url) {
 
   let m;
   if (req.method === "GET" && (m = url.pathname.match(/^\/api\/templates\/(.+)$/))) {
-    const t = await catalog.template(decodeURIComponent(m[1]));
-    return t ? sendJson(res, 200, t) : sendJson(res, 404, { error: "Template bulunamadı" });
+    return sendDetail(res, "Job template", () => catalog.template(decodeURIComponent(m[1])));
   }
   if (req.method === "GET" && (m = url.pathname.match(/^\/api\/workflows\/(.+)$/))) {
-    const w = await catalog.workflow(decodeURIComponent(m[1]));
-    return w ? sendJson(res, 200, w) : sendJson(res, 404, { error: "Workflow bulunamadı" });
+    return sendDetail(res, "Workflow", () => catalog.workflow(decodeURIComponent(m[1])));
   }
   if (req.method === "GET" && (m = url.pathname.match(/^\/api\/logs\/(.+)$/))) {
     const e = logger.get(decodeURIComponent(m[1]));

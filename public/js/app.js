@@ -124,19 +124,51 @@ function renderRuleChips() {
   $("#tplRuleCount").textContent = `(${rules.filter((r) => State.runRules.has(r.id)).length}/${rules.length})`;
 }
 
+/** @returns {Promise<boolean>} yüklendi mi */
 async function loadTemplate(id) {
   $("#tplSelect").value = id;
   const ta = $("#tplInput");
   ta.value = "Yükleniyor…";
+  let ok = false;
   try {
     const t = await getDetail("template", id);
     ta.value = t.content || "";
     ta.dataset.templateId = id;
+    ensureOption("#tplSelect", id, t.name);
+    ok = true;
   } catch (e) {
     ta.value = "";
-    toast(`Template alınamadı: ${e.message}`, true);
+    delete ta.dataset.templateId;
+    $("#tplResult").innerHTML = errorView(new Error(`Template #${id} alınamadı: ${e.message}`));
   }
   syncGutter();
+  return ok;
+}
+
+/** Listede olmayan (ID ile getirilen) kaydı seçim kutusuna ekler. */
+function ensureOption(sel, id, name) {
+  const s = $(sel);
+  if (![...s.options].some((o) => o.value === id)) s.add(new Option(`${name} (#${id})`, id));
+  s.value = id;
+}
+
+/** AAP'den ID ile (önbelleği atlayarak) getirir ve analiz eder. */
+async function fetchByIdAndAnalyze(kind) {
+  const input = $(kind === "template" ? "#tplIdInput" : "#wfIdInput");
+  const id = input.value.trim().replace(/^#/, "");
+  if (!id) return toast(`${kind === "template" ? "Job template" : "Workflow"} ID girin`, true);
+  const btn = $(kind === "template" ? "#tplIdGo" : "#wfIdGo");
+  btn.disabled = true;
+  State.detailCache.delete(`${kind}:${id}`);
+  try {
+    if (kind === "template") {
+      if (await loadTemplate(id)) await analyzeTemplate();
+    } else if (await loadWorkflow(id)) {
+      await analyzeWorkflow();
+    }
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 const loadingView = (text) => `<div class="loading"><div class="spinner"></div><div>${esc(text)}</div></div>`;
@@ -278,13 +310,20 @@ const NODE_STYLE = {
 };
 const EDGE_COLOR = { success: "#3e8635", failure: "#c9190b", always: "#0066cc" };
 
+/** @returns {Promise<boolean>} yüklendi mi */
 async function loadWorkflow(id) {
   $("#wfSelect").value = id;
-  $("#wfCanvas").innerHTML = loadingView("Workflow yükleniyor…");
+  $("#wfCanvas").innerHTML = loadingView("Workflow AAP'den yükleniyor…");
   try {
-    setWorkflow(await getDetail("workflow", id));
+    const wf = await getDetail("workflow", id);
+    setWorkflow(wf);
+    ensureOption("#wfSelect", id, wf.name);
+    return true;
   } catch (e) {
-    $("#wfCanvas").innerHTML = errorView(e);
+    State.currentWorkflow = null;
+    $("#wfResult").classList.add("hidden");
+    $("#wfCanvas").innerHTML = `<div style="padding:16px">${errorView(new Error(`Workflow #${id} alınamadı: ${e.message}`))}</div>`;
+    return false;
   }
 }
 
@@ -767,6 +806,10 @@ function bindEvents() {
   // workflow
   $("#wfSelect").onchange = (e) => e.target.value && (location.hash = `#/workflow/${encodeURIComponent(e.target.value)}`);
   $("#wfAnalyze").onclick = analyzeWorkflow;
+  $("#wfIdGo").onclick = () => fetchByIdAndAnalyze("workflow");
+  $("#wfIdInput").addEventListener("keydown", (e) => e.key === "Enter" && fetchByIdAndAnalyze("workflow"));
+  $("#tplIdGo").onclick = () => fetchByIdAndAnalyze("template");
+  $("#tplIdInput").addEventListener("keydown", (e) => e.key === "Enter" && fetchByIdAndAnalyze("template"));
   $("#wfJsonToggle").onclick = () => $("#wfJsonWrap").classList.toggle("hidden");
   $("#wfJsonApply").onclick = () => {
     try {
