@@ -201,6 +201,24 @@
           </div>
         </div>
         <div class="card narrow">
+          <div class="card-head">
+            <h3>Sistem mesajı <span class="muted sm">(role: "system")</span></h3>
+            <span class="muted sm" id="promptInfo"></span>
+          </div>
+          <form id="promptForm" class="form">
+            <label>Morpheus'un kimliği ve kuralları
+              <textarea class="input mono" name="system" rows="10" spellcheck="false"></textarea>
+              <small>chat/completions isteğinde <code>messages[0] = { role: "system", content: … }</code> olarak gönderilir. Sohbette yazdığınız mesaj ise değiştirilmeden <code>{ role: "user", content: … }</code> olarak gider. Tüm kullanıcılar için sunucuda saklanır.</small>
+            </label>
+            <label class="check"><input type="checkbox" name="includeStandards" /> Sohbette aktif kurumsal standartları system mesajının sonuna ekle</label>
+            <div class="toolbar">
+              <button class="btn primary" type="submit">Kaydet</button>
+              <button class="btn link" type="button" id="promptReset">Varsayılana dön</button>
+              <button class="btn link" type="button" id="promptPreview">Gönderilecek isteği göster</button>
+            </div>
+          </form>
+        </div>
+        <div class="card narrow">
           <div class="card-head"><h3>Arayüz</h3></div>
           <form id="settingsForm" class="form">
             <label>API Base URL
@@ -209,10 +227,6 @@
             </label>
             <label>Model (opsiyonel)
               <input class="input" name="model" placeholder="boş = .env'deki CHAT_MODEL" />
-            </label>
-            <label>Ek sistem talimatı
-              <textarea class="input" name="systemPrompt" rows="4"></textarea>
-              <small>AI'a gönderilen sistem mesajına eklenir.</small>
             </label>
             <div class="toolbar"><button class="btn primary" type="submit">Kaydet</button><span class="muted sm" id="settingsMsg"></span></div>
           </form>

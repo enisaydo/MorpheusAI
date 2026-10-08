@@ -22,6 +22,7 @@ const analyzer = require("./lib/analyzer");
 const genai = require("./lib/genai");
 const aap = require("./lib/aap");
 const logger = require("./lib/logger");
+const prompts = require("./lib/prompts");
 
 const PORT = process.env.PORT || 3000;
 const AI_BACKEND_URL = process.env.AI_BACKEND_URL || "";
@@ -156,6 +157,11 @@ async function handleApi(req, res, url) {
       return sendJson(res, 200, withScore("template", await catalog.templates()));
     case "GET /api/workflows":
       return sendJson(res, 200, withScore("workflow", await catalog.workflows()));
+    case "GET /api/prompts":
+      return sendJson(res, 200, { ...prompts.get(), defaults: prompts.DEFAULTS });
+    case "POST /api/prompts":
+      try { return sendJson(res, 200, prompts.save(json)); }
+      catch (e) { return sendJson(res, 400, { error: e.message }); }
     case "GET /api/logs":
       return sendJson(res, 200, logger.list({ limit: Number(url.searchParams.get("limit") || 100), service: url.searchParams.get("service") || undefined }));
     case "POST /api/analyze/template":

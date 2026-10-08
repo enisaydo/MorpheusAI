@@ -8,6 +8,8 @@
 const { spawn } = require("child_process");
 const http = require("http");
 const path = require("path");
+const fs = require("fs");
+const os = require("os");
 
 const SERVER = path.join(__dirname, "..", "server.js");
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -18,7 +20,11 @@ function assert(cond, msg) {
 }
 
 function startServer(port, extraEnv) {
-  const env = { ...process.env, PORT: String(port), AI_BACKEND_URL: "", AI_LOG_FILE: "false", AAP_URL: "", ...extraEnv };
+  const env = {
+    ...process.env, PORT: String(port), AI_BACKEND_URL: "", AI_LOG_FILE: "false", AAP_URL: "",
+    MORPHEUS_DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), "morpheus-test-")),
+    ...extraEnv,
+  };
   return spawn(process.execPath, [SERVER], { env, stdio: ["ignore", "ignore", "ignore"] });
 }
 
@@ -175,6 +181,24 @@ async function genaiSuite() {
     const sys = seen.lastChatBody.messages[0].content;
     assert(ctxChat.reply && sys.includes("STD-005") && sys.includes("JT-002"), "sohbete kurumsal standartlar eklendi");
     assert(sys.includes("- hosts: all"), "sohbete seçilen template bağlamı eklendi");
+
+    const SYS = "Sen bir test asistanısın.\nKısa cevap ver.";
+    const saved = await postJson(base, "/api/prompts", { system: SYS, includeStandards: false });
+    assert(saved.system === SYS && saved.includeStandards === false, "sistem mesajı Ayarlar'dan kaydedildi");
+    const got = await (await fetch(`${base}/api/prompts`)).json();
+    assert(got.system === SYS && got.defaults.system.length > 0, "kaydedilen sistem mesajı geri okundu");
+    await postJson(base, "/api/chat", { messages: [{ role: "user", content: "Test" }] });
+    const [m0, m1] = seen.lastChatBody.messages;
+    assert(m0.role === "system" && m0.content === SYS, "role:system içeriği birebir kaydedilen metin");
+    assert(m1.role === "user" && m1.content === "Test" && seen.lastChatBody.messages.length === 2, "role:user içeriği yazılan mesajın aynısı");
+    await postJson(base, "/api/prompts", { system: SYS, includeStandards: true });
+    await postJson(base, "/api/chat", { messages: [{ role: "user", content: "Test" }] });
+    const sys2 = seen.lastChatBody.messages[0].content;
+    assert(sys2.startsWith(SYS) && sys2.includes("## Kurumsal standartlar"), "standart ekleme açıkken standartlar metnin sonuna eklendi");
+    const tplSys = (await postJson(base, "/api/analyze/template", { content: "- hosts: all" }), seen.lastChatBody.messages[0].content);
+    assert(tplSys === SYS, "template analizinde de aynı sistem mesajı kullanıldı");
+    const bad = await fetch(`${base}/api/prompts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ system: "  " }) });
+    assert(bad.status === 400, "boş sistem mesajı reddedildi");
 
     const empty = await fetch(`${base}/api/chat`, {
       method: "POST", headers: { "Content-Type": "application/json" },

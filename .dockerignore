@@ -9,3 +9,4 @@ scripts
 Dockerfile
 docker-compose.yml
 logs
+data

@@ -4,7 +4,7 @@
  */
 const Settings = (() => {
   const KEY = "morpheus.settings";
-  const defaults = { apiBase: "/api", apiKey: "", model: "", systemPrompt: "" };
+  const defaults = { apiBase: "/api", apiKey: "", model: "" };
   let cache;
   const load = () => {
     if (cache) return cache;
@@ -41,7 +41,7 @@ const Api = (() => {
 
   const meta = () => {
     const s = Settings.get();
-    return { model: s.model || undefined, systemPrompt: s.systemPrompt || undefined };
+    return { model: s.model || undefined };
   };
 
   return {
@@ -53,6 +53,8 @@ const Api = (() => {
     workflow: (id) => request(`/workflows/${encodeURIComponent(id)}`),
     logs: (service) => request(`/logs?limit=200${service ? `&service=${service}` : ""}`),
     log: (id) => request(`/logs/${encodeURIComponent(id)}`),
+    prompts: () => request("/prompts"),
+    savePrompts: ({ system, includeStandards }) => request("/prompts", { method: "POST", body: { system, includeStandards } }),
 
     analyzeTemplate: ({ content, rules, customRules, prompt, templateId }) =>
       request("/analyze/template", { method: "POST", body: { content, rules, customRules, prompt, templateId, ...meta() } }),
@@ -71,6 +73,8 @@ GET  /api/templates         → { id, name, project, playbook, inventory, owner,
 GET  /api/templates/:id     → { ...template, content: "<AAP tanımı JSON | playbook YAML>" }
 GET  /api/workflows         → { id, name, description, owner, lastScore, nodeCount, source }[]
 GET  /api/workflows/:id     → { ...workflow, nodes: Node[], notifications?, settings? }
+GET  /api/prompts           → { system, includeStandards, defaults }
+POST /api/prompts           ← { system, includeStandards }   (role: "system" içeriği, sunucuda saklanır)
 GET  /api/logs[?service=]   → LogSummary[]          (GenAI / AAP çağrıları, en yeni önce)
 GET  /api/logs/:id          → { ...LogSummary, request: {headers, body}, response: {headers, body} }
 

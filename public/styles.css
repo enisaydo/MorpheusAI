@@ -270,6 +270,8 @@ textarea.input { resize: vertical; }
 .form { display: grid; gap: 14px; }
 .form label { display: grid; gap: 4px; font-weight: 500; font-size: 14px; }
 .form small { font-weight: 400; color: var(--muted); }
+.form label.check { display: flex; align-items: center; gap: 8px; font-weight: 400; }
+.form textarea.mono { font: 13px/1.5 var(--mono); }
 .contract { margin: 0; background: var(--code-bg); border: 1px solid var(--border-soft); padding: 12px; font: 12px/1.6 var(--mono); overflow-x: auto; }
 
 /* ---------------- modal / toast ---------------- */

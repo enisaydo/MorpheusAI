@@ -680,8 +680,39 @@ async function checkHealth(deep = false) {
 
 function fillSettings() {
   const s = Settings.get(), f = $("#settingsForm");
-  ["apiBase", "model", "systemPrompt"].forEach((k) => (f.elements[k].value = s[k] || ""));
+  ["apiBase", "model"].forEach((k) => (f.elements[k].value = s[k] || ""));
   $("#contract").textContent = API_CONTRACT;
+}
+
+/* ---- Sistem mesajı (role: system) ---- */
+async function loadPrompts() {
+  try {
+    const p = await Api.prompts();
+    State.prompts = p;
+    const f = $("#promptForm");
+    f.elements.system.value = p.system;
+    f.elements.includeStandards.checked = p.includeStandards !== false;
+    $("#promptInfo").textContent = p.updatedAt ? `Son kayıt: ${fmtTime(p.updatedAt)}` : "Varsayılan metin";
+  } catch (e) {
+    $("#promptInfo").textContent = `Yüklenemedi: ${e.message}`;
+  }
+}
+
+function previewRequest() {
+  const f = $("#promptForm");
+  const standards = activeRules().map((r) => `- ${r.id} [${r.scope}/${r.severity}] ${r.title}: ${r.description}`).join("\n");
+  const system = [f.elements.system.value, f.elements.includeStandards.checked && standards ? `## Kurumsal standartlar\n${standards}` : ""]
+    .filter(Boolean).join("\n\n");
+  const body = {
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: "<Morpheus'a Sor ekranında yazdığınız mesaj>" },
+    ],
+  };
+  modal("Gönderilecek chat/completions gövdesi (örnek)", `
+    <p class="muted sm">Model alanı (<code>model_name</code>) ve <code>max_completion_tokens</code> sunucudaki <code>.env</code>'den eklenir.
+    Sohbette bağlam seçilirse seçilen template/workflow system mesajının sonuna eklenir; önceki mesajlar da sırayla gönderilir.</p>
+    <pre class="code-block">${esc(JSON.stringify(body, null, 2))}</pre>`, { wide: true });
 }
 
 /* ================================================================== */
@@ -797,6 +828,24 @@ function bindEvents() {
     $("#settingsMsg").textContent = "Kaydedildi";
     setTimeout(() => ($("#settingsMsg").textContent = ""), 2000);
   };
+  $("#promptForm").onsubmit = async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    try {
+      const p = await Api.savePrompts({ system: f.elements.system.value, includeStandards: f.elements.includeStandards.checked });
+      State.prompts = { ...State.prompts, ...p };
+      $("#promptInfo").textContent = `Son kayıt: ${fmtTime(p.updatedAt)}`;
+      toast("Sistem mesajı kaydedildi");
+    } catch (err) { toast(err.message, true); }
+  };
+  $("#promptReset").onclick = () => {
+    const d = State.prompts?.defaults;
+    if (!d) return;
+    $("#promptForm").elements.system.value = d.system;
+    $("#promptForm").elements.includeStandards.checked = d.includeStandards;
+    toast("Varsayılan metin yüklendi — kalıcı olması için Kaydet'e basın");
+  };
+  $("#promptPreview").onclick = previewRequest;
   $("#testConn").onclick = async (e) => {
     e.target.disabled = true;
     await checkHealth(true);
@@ -827,6 +876,7 @@ async function loadCatalog() {
   syncGutter();
   resetChat();
   await checkHealth();
+  loadPrompts();
   await loadCatalog();
   route();
 })();
