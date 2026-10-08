@@ -31,7 +31,7 @@ const activeRules = (scope) => allRules().filter((r) => (!scope || r.scope === s
 /* ================================================================== */
 /*  Router                                                             */
 /* ================================================================== */
-const ROUTES = ["dashboard", "template", "workflow", "oracle", "standards", "logs", "settings"];
+const ROUTES = ["dashboard", "template", "workflow", "oracle", "standards", "usage", "logs", "settings"];
 
 function route() {
   const [name, arg] = location.hash.replace(/^#\/?/, "").split("/");
@@ -43,6 +43,8 @@ function route() {
   if (r === "workflow" && arg) loadWorkflow(decodeURIComponent(arg));
   if (r === "oracle") setTimeout(() => $("#chatText").focus(), 50);
   if (r === "logs") loadLogs();
+  if (r === "usage") loadUsage();
+  if (r === "settings") loadLimits();
   setLogAuto(r === "logs" && $("#logAuto").checked);
   window.scrollTo(0, 0);
 }
@@ -187,19 +189,21 @@ async function analyzeTemplate() {
   try {
     const rules = [...State.runRules];
     const templateId = $("#tplInput").dataset.templateId || undefined;
+    const title = State.templates.find((t) => t.id === templateId)?.name || $("#tplSelect").selectedOptions[0]?.text || undefined;
     const res = await Api.analyzeTemplate({
-      content, rules, templateId,
+      content, rules, templateId, title: templateId ? title : undefined,
       prompt: $("#tplPrompt").value.trim() || undefined,
       customRules: State.customRules.filter((r) => r.scope === "template" && rules.includes(r.id)),
     });
-    const title = State.templates.find((t) => t.id === templateId)?.name || "Yapıştırılan içerik";
-    State.lastAnalysis = { kind: "template", title, ...res };
-    renderResult($("#tplResult"), res, { kind: "template", title });
+    const shown = templateId ? title : "Yapıştırılan içerik";
+    State.lastAnalysis = { kind: "template", title: shown, ...res };
+    renderResult($("#tplResult"), res, { kind: "template", title: shown });
     updateScore("templates", templateId, res.score);
   } catch (e) {
     $("#tplResult").innerHTML = errorView(e);
   } finally {
     btn.disabled = false;
+    refreshTokenChip();
   }
 }
 
@@ -457,6 +461,7 @@ async function analyzeWorkflow() {
     box.innerHTML = errorView(e);
   } finally {
     btn.disabled = false;
+    refreshTokenChip();
   }
 }
 
@@ -529,6 +534,7 @@ async function sendChat(text) {
   State.chatBusy = false;
   $("#chatSend").disabled = false;
   renderChat();
+  refreshTokenChip();
 }
 
 function askAboutAnalysis(title) {
@@ -670,6 +676,214 @@ async function showLog(id) {
 }
 
 /* ================================================================== */
+/*  Token kullanımı                                                    */
+/* ================================================================== */
+const KIND_LABEL = { chat: "Sohbet", "analyze-template": "Template analizi", "analyze-workflow": "Workflow analizi" };
+const fmtNum = (n) => Number(n || 0).toLocaleString("tr-TR");
+const fmtK = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(n >= 1e4 ? 0 : 1)}k` : String(n));
+const isoDay = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+
+function setUsageRange(days) {
+  const to = new Date(), from = new Date();
+  from.setDate(to.getDate() - (days - 1));
+  $("#usageFrom").value = isoDay(from);
+  $("#usageTo").value = isoDay(to);
+  $$("#usageRange button").forEach((b) => b.classList.toggle("on", Number(b.dataset.days) === days));
+}
+
+async function refreshTokenChip() {
+  try {
+    const t = await Api.usageToday();
+    const chip = $("#tokenChip");
+    const limit = t.dailyLimit;
+    $("span", chip).textContent = limit ? `Token: ${fmtK(t.total)} / ${fmtK(limit)}` : `Token: ${fmtK(t.total)} bugün`;
+    chip.classList.toggle("over", Boolean(limit && t.total >= limit));
+    chip.title = `Bugün ${fmtNum(t.total)} token, ${t.requests} istek` + (limit ? ` · limit ${fmtNum(limit)}` : " · limit yok") +
+      (t.perUserDailyLimit ? ` · sizin: ${fmtNum(t.userTotal)} / ${fmtNum(t.perUserDailyLimit)}` : "");
+  } catch {}
+}
+
+async function loadUsage() {
+  if (!$("#usageFrom").value) setUsageRange(7);
+  try {
+    const r = await Api.usage({
+      from: $("#usageFrom").value, to: $("#usageTo").value,
+      user: $("#usageUser").value, kind: $("#usageKind").value,
+    });
+    State.usage = r;
+    renderUsage(r);
+  } catch (e) {
+    $("#usageKpis").innerHTML = errorView(e);
+  }
+}
+
+function renderUsage(r) {
+  // kullanıcı filtresi seçenekleri (seçimi koru)
+  const us = $("#usageUser"), cur = us.value;
+  us.innerHTML = `<option value="">Tüm kullanıcılar</option>` + r.users.map((u) => `<option>${esc(u)}</option>`).join("");
+  us.value = r.users.includes(cur) ? cur : "";
+
+  const t = r.today, limit = t.dailyLimit;
+  const pct = limit ? Math.min(100, Math.round((t.total / limit) * 100)) : 0;
+  const days = r.days.filter((d) => d.totalTokens > 0).length;
+  $("#usageKpis").innerHTML = [
+    `<div class="kpi"><div class="k-label">Bugün kullanılan</div><div class="k-val">${fmtNum(t.total)}</div>
+      <div class="k-sub">${limit ? `limit ${fmtNum(limit)} · kalan ${fmtNum(t.remaining)}` : "günlük limit yok"}</div>
+      ${limit ? `<div class="progress"><i class="${pct >= 100 ? "over" : pct >= 80 ? "warn" : ""}" style="width:${pct}%"></i></div>` : ""}</div>`,
+    `<div class="kpi"><div class="k-label">Seçili dönem toplamı</div><div class="k-val">${fmtNum(r.total.totalTokens)}</div>
+      <div class="k-sub">${fmtNum(r.total.promptTokens)} girdi · ${fmtNum(r.total.completionTokens)} çıktı</div></div>`,
+    `<div class="kpi"><div class="k-label">İstek sayısı</div><div class="k-val">${fmtNum(r.total.requests)}</div>
+      <div class="k-sub">${r.total.errors ? `${r.total.errors} hatalı` : "hata yok"}</div></div>`,
+    `<div class="kpi"><div class="k-label">Günlük ortalama</div><div class="k-val">${fmtNum(days ? Math.round(r.total.totalTokens / days) : 0)}</div>
+      <div class="k-sub">kullanım olan ${days} gün</div></div>`,
+  ].join("");
+  $("#usageTz").textContent = `Saat dilimi: ${r.timezone}`;
+
+  renderUsageChart(r.days, r.limits.dailyLimit);
+
+  const maxU = Math.max(1, ...r.byUser.map((u) => u.totalTokens));
+  $("#usageByUser").innerHTML = r.byUser.map((u) => `
+    <div class="hbar" title="${esc(u.key)}: ${fmtNum(u.totalTokens)} token, ${u.requests} istek">
+      <span class="name">${esc(u.key)}</span>
+      <div class="track"><div class="fill" style="width:${(u.totalTokens / maxU) * 100}%"></div></div>
+      <span class="val">${fmtNum(u.totalTokens)}</span>
+    </div>`).join("") || `<p class="muted">Bu dönemde kullanım yok.</p>`;
+
+  $("#usageByKind").innerHTML = `<tr><th>Tür</th><th class="num">İstek</th><th class="num">Girdi</th><th class="num">Çıktı</th><th class="num">Toplam</th></tr>` +
+    (r.byKind.map((k) => `<tr><td>${esc(KIND_LABEL[k.key] || k.key)}</td><td class="num">${fmtNum(k.requests)}</td>
+      <td class="num">${fmtNum(k.promptTokens)}</td><td class="num">${fmtNum(k.completionTokens)}</td><td class="num"><b>${fmtNum(k.totalTokens)}</b></td></tr>`).join("") ||
+      `<tr><td colspan="5" class="muted">—</td></tr>`);
+
+  $("#usageCount").textContent = `${r.records.length}${r.records.length >= 500 ? "+ (en yeni 500)" : ""} kayıt`;
+  $("#usageTable").innerHTML =
+    `<tr><th>Zaman</th><th>Kullanıcı</th><th>Tür</th><th>Sorgu</th><th class="num">Girdi</th><th class="num">Çıktı</th><th class="num">Toplam</th><th>Durum</th></tr>` +
+    (r.records.map((x, i) => `<tr class="clickable" data-usage="${i}">
+      <td class="mono">${esc(fmtTime(x.time))}</td><td>${esc(x.user)}</td><td>${esc(KIND_LABEL[x.kind] || x.kind)}</td>
+      <td class="q-cell" title="${esc(x.question)}">${esc(x.question)}</td>
+      <td class="num">${fmtNum(x.promptTokens)}</td><td class="num">${fmtNum(x.completionTokens)}</td>
+      <td class="num"><b>${fmtNum(x.totalTokens)}</b>${x.estimated ? ` <span class="muted sm" title="Gateway kullanım bilgisi döndürmedi; tahmini">≈</span>` : ""}</td>
+      <td class="${x.ok ? "status-ok" : "status-err"}">${x.ok ? "Başarılı" : "Hata"}</td></tr>`).join("") ||
+      `<tr><td colspan="8" class="muted">Bu dönemde sorgu yok.</td></tr>`);
+}
+
+/** Günlük kullanım: tek seri dikey çubuk + limit referans çizgisi + çubuk başına hover ipucu */
+function renderUsageChart(days, limit) {
+  const el = $("#usageChart");
+  const W = 640, H = 240, L = 48, R = 12, T = 16, B = 28;
+  const max = Math.max(1000, limit || 0, ...days.map((d) => d.totalTokens)) * 1.1;
+  const step = Math.pow(10, Math.floor(Math.log10(max / 4)));
+  const tick = [1, 2, 2.5, 5, 10].map((m) => m * step).find((s) => max / s <= 5) || step * 10;
+  const y = (v) => T + (H - T - B) * (1 - v / max);
+  const n = days.length, cw = (W - L - R) / n, bw = Math.max(2, Math.min(36, cw - 2));
+  const labelEvery = Math.ceil(n / 10);
+
+  const gridLines = [], yLabels = [];
+  for (let v = 0; v <= max; v += tick) {
+    gridLines.push(`<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/>`);
+    yLabels.push(`<text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${fmtK(v)}</text>`);
+  }
+
+  const xLabels = [], cols = [];
+  days.forEach((d, i) => {
+    const x = L + i * cw + (cw - bw) / 2, top = y(d.totalTokens), r = Math.min(4, bw / 2, y(0) - top);
+    // üst köşeleri 4px yuvarlatılmış, tabana oturan çubuk; isabet alanı tüm sütun
+    const bar = d.totalTokens > 0
+      ? `<path class="bar" d="M${x},${y(0)} V${top + r} Q${x},${top} ${x + r},${top} H${x + bw - r} Q${x + bw},${top} ${x + bw},${top + r} V${y(0)} Z"/>`
+      : "";
+    cols.push(`<g class="col" data-i="${i}"><rect class="hit" x="${L + i * cw}" y="${T}" width="${cw}" height="${H - T - B}"/>${bar}</g>`);
+    if (i % labelEvery === 0)
+      xLabels.push(`<text x="${L + i * cw + cw / 2}" y="${H - 8}" text-anchor="middle">${d.date.slice(8, 10)}.${d.date.slice(5, 7)}</text>`);
+  });
+
+  const limitLine = limit
+    ? `<line class="limit" x1="${L}" x2="${W - R}" y1="${y(limit)}" y2="${y(limit)}"/>
+       <text class="limit-label" x="${W - R}" y="${y(limit) - 5}" text-anchor="end">Günlük limit ${fmtK(limit)}</text>`
+    : "";
+
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Günlük token kullanımı">
+      <g class="grid">${gridLines.join("")}</g>
+      <g class="axis">${yLabels.join("")}${xLabels.join("")}</g>
+      ${cols.join("")}
+      ${limitLine}
+    </svg><div class="tip hidden"></div>`;
+
+  const tip = $(".tip", el);
+  el.onmousemove = (e) => {
+    const g = e.target.closest(".col");
+    if (!g) return tip.classList.add("hidden");
+    const d = days[+g.dataset.i];
+    const box = el.getBoundingClientRect(), rect = g.querySelector(".hit").getBoundingClientRect();
+    tip.innerHTML = `<b>${d.date.split("-").reverse().join(".")}</b><br>${fmtNum(d.totalTokens)} token · ${d.requests} istek`;
+    tip.style.left = `${rect.left - box.left + rect.width / 2}px`;
+    tip.style.top = `${Math.max(12, (g.querySelector(".bar")?.getBoundingClientRect().top ?? rect.bottom) - box.top)}px`;
+    tip.classList.remove("hidden");
+  };
+  el.onmouseleave = () => tip.classList.add("hidden");
+}
+
+function showUsageRecord(i) {
+  const x = State.usage?.records[i];
+  if (!x) return;
+  modal(KIND_LABEL[x.kind] || x.kind, `
+    <dl class="kv">
+      <dt>Zaman</dt><dd>${esc(fmtTime(x.time))}</dd>
+      <dt>Kullanıcı</dt><dd>${esc(x.user)}${x.ip ? ` <span class="muted sm">(${esc(x.ip)})</span>` : ""}</dd>
+      <dt>Model</dt><dd>${esc(x.model || "—")}</dd>
+      <dt>Token</dt><dd>${fmtNum(x.promptTokens)} girdi · ${fmtNum(x.completionTokens)} çıktı · <b>${fmtNum(x.totalTokens)}</b> toplam${x.estimated ? " (tahmini)" : ""}</dd>
+      <dt>Durum</dt><dd class="${x.ok ? "status-ok" : "status-err"}">${x.ok ? "Başarılı" : esc(x.error || "Hata")}</dd>
+    </dl>
+    <h4>Sorgu</h4><pre class="code-block">${esc(x.question)}</pre>
+    ${x.logId ? `<div class="toolbar end"><button class="btn link sm" id="openLog">İstek/cevap logunu aç</button></div>` : ""}`);
+  if (x.logId) $("#openLog").onclick = () => showLog(x.logId);
+}
+
+function usageCsv() {
+  const r = State.usage;
+  if (!r) return;
+  const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const lines = [["zaman", "kullanici", "ip", "tur", "sorgu", "model", "girdi_token", "cikti_token", "toplam_token", "tahmini", "durum"].join(";"),
+    ...r.records.map((x) => [x.time, x.user, x.ip, x.kind, x.question, x.model, x.promptTokens, x.completionTokens, x.totalTokens, x.estimated, x.ok ? "ok" : x.error].map(q).join(";"))];
+  download(`morpheus-token-${r.from}_${r.to}.csv`, "﻿" + lines.join("\n"), "text/csv;charset=utf-8");
+}
+
+/* ---- Limitler ---- */
+async function loadLimits() {
+  try {
+    const l = await Api.limits();
+    const f = $("#limitForm");
+    f.elements.dailyLimit.value = l.dailyLimit || 0;
+    f.elements.perUserDailyLimit.value = l.perUserDailyLimit || 0;
+    $("#limitInfo").textContent = l.updatedAt ? `Son değişiklik: ${fmtTime(l.updatedAt)}${l.updatedBy ? ` · ${l.updatedBy}` : ""}` : "";
+  } catch (e) { $("#limitInfo").textContent = e.message; }
+}
+
+/* ---- Kullanıcı adı ---- */
+function renderUserChip() {
+  $("span", $("#userChip")).textContent = Settings.get().userName || "Kullanıcı adı girin";
+}
+
+function askUserName(force = false) {
+  if (Settings.get().userName && !force) return;
+  modal("Kullanıcı adınız", `
+    <form id="userForm" class="form">
+      <label>Ad / sicil
+        <input class="input" name="userName" required maxlength="80" value="${esc(Settings.get().userName)}" placeholder="ör. EnisA" />
+        <small>Token kullanım raporlarında "kim kullandı" olarak görünür. Bu tarayıcıda saklanır.</small>
+      </label>
+      <div class="toolbar end"><button class="btn primary" type="submit">Kaydet</button></div>
+    </form>`);
+  $("#userForm").onsubmit = (e) => {
+    e.preventDefault();
+    Settings.save({ userName: e.target.elements.userName.value.trim() });
+    $("#settingsForm").elements.userName.value = Settings.get().userName;
+    renderUserChip();
+    closeModal();
+    refreshTokenChip();
+  };
+  setTimeout(() => $("#userForm input").focus(), 30);
+}
+
+/* ================================================================== */
 /*  Bağlantı durumu & ayarlar                                          */
 /* ================================================================== */
 function setChip(el, cls, text, title) {
@@ -719,7 +933,7 @@ async function checkHealth(deep = false) {
 
 function fillSettings() {
   const s = Settings.get(), f = $("#settingsForm");
-  ["apiBase", "model"].forEach((k) => (f.elements[k].value = s[k] || ""));
+  ["apiBase", "model", "userName"].forEach((k) => (f.elements[k].value = s[k] || ""));
   $("#contract").textContent = API_CONTRACT;
 }
 
@@ -864,10 +1078,44 @@ function bindEvents() {
   $("#logRefresh").onclick = loadLogs;
   $("#logAuto").onchange = (e) => setLogAuto(e.target.checked);
 
+  // token kullanımı
+  $("#usageRange").onclick = (e) => {
+    const b = e.target.closest("[data-days]");
+    if (!b) return;
+    setUsageRange(Number(b.dataset.days));
+    loadUsage();
+  };
+  ["#usageFrom", "#usageTo"].forEach((id) => ($(id).onchange = () => {
+    $("#usageRange button").forEach((b) => b.classList.remove("on"));
+    loadUsage();
+  }));
+  $("#usageUser").onchange = loadUsage;
+  $("#usageKind").onchange = loadUsage;
+  $("#usageCsv").onclick = usageCsv;
+  $("#usageTable").onclick = (e) => {
+    const tr = e.target.closest("[data-usage]");
+    if (tr) showUsageRecord(+tr.dataset.usage);
+  };
+  $("#userChip").onclick = () => askUserName(true);
+  $("#limitForm").onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await Api.saveLimits({
+        dailyLimit: Number(e.target.elements.dailyLimit.value || 0),
+        perUserDailyLimit: Number(e.target.elements.perUserDailyLimit.value || 0),
+      });
+      toast("Limitler kaydedildi");
+      loadLimits();
+      refreshTokenChip();
+    } catch (err) { toast(err.message, true); }
+  };
+
   // settings
   $("#settingsForm").onsubmit = (e) => {
     e.preventDefault();
     Settings.save(Object.fromEntries(new FormData(e.target)));
+    renderUserChip();
+    refreshTokenChip();
     $("#settingsMsg").textContent = "Kaydedildi";
     setTimeout(() => ($("#settingsMsg").textContent = ""), 2000);
   };
@@ -918,8 +1166,12 @@ async function loadCatalog() {
   bindEvents();
   syncGutter();
   resetChat();
+  renderUserChip();
   await checkHealth();
   loadPrompts();
+  refreshTokenChip();
+  setInterval(refreshTokenChip, 60000);
   await loadCatalog();
   route();
+  askUserName();
 })();

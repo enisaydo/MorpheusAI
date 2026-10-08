@@ -23,6 +23,17 @@ const genai = require("./lib/genai");
 const aap = require("./lib/aap");
 const logger = require("./lib/logger");
 const prompts = require("./lib/prompts");
+const usage = require("./lib/usage");
+
+/* Kullanıcı kimliği: önce güvenilen proxy header'ı (USER_HEADER), yoksa arayüzün gönderdiği X-Morpheus-User */
+const USER_HEADER = (process.env.USER_HEADER || "").toLowerCase();
+function whoIs(req) {
+  const raw = (USER_HEADER && req.headers[USER_HEADER]) || req.headers["x-morpheus-user"] || "";
+  let user = "";
+  try { user = decodeURIComponent(String(raw)).trim().slice(0, 80); } catch { user = String(raw).slice(0, 80); }
+  const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim();
+  return { user: user || `anonim (${ip})`, ip };
+}
 
 const PORT = process.env.PORT || 3000;
 const AI_BACKEND_URL = process.env.AI_BACKEND_URL || "";
@@ -161,6 +172,7 @@ async function handleApi(req, res, url) {
   try { json = body ? JSON.parse(body) : {}; } catch { return sendJson(res, 400, { error: "Geçersiz JSON gövdesi" }); }
   const route = `${req.method} ${url.pathname}`;
   const ai = MODE === "genai";
+  const who = whoIs(req);
 
   switch (route) {
     case "GET /api/health":
@@ -176,20 +188,32 @@ async function handleApi(req, res, url) {
     case "POST /api/prompts":
       try { return sendJson(res, 200, prompts.save(json)); }
       catch (e) { return sendJson(res, 400, { error: e.message }); }
+    case "GET /api/usage":
+      return sendJson(res, 200, usage.report({
+        from: url.searchParams.get("from"), to: url.searchParams.get("to"),
+        user: url.searchParams.get("user") || undefined, kind: url.searchParams.get("kind") || undefined,
+      }));
+    case "GET /api/usage/today":
+      return sendJson(res, 200, { ...usage.today(who.user), mode: MODE });
+    case "GET /api/limits":
+      return sendJson(res, 200, usage.getLimits());
+    case "POST /api/limits":
+      try { return sendJson(res, 200, usage.saveLimits(json, who.user)); }
+      catch (e) { return sendJson(res, 400, { error: e.message }); }
     case "GET /api/logs":
       return sendJson(res, 200, logger.list({ limit: Number(url.searchParams.get("limit") || 100), service: url.searchParams.get("service") || undefined }));
     case "POST /api/analyze/template":
       if (!json.content) return sendJson(res, 400, { error: "content zorunlu" });
-      if (ai) return sendJson(res, 200, remember("template", json.templateId, await analyzer.analyzeTemplate(json, STANDARDS)));
+      if (ai) return sendJson(res, 200, remember("template", json.templateId, await analyzer.analyzeTemplate(json, STANDARDS, who)));
       await delay(900);
       return sendJson(res, 200, remember("template", json.templateId, demo.analyzeTemplate(json.content, json.rules)));
     case "POST /api/analyze/workflow":
       if (!json.workflow) return sendJson(res, 400, { error: "workflow zorunlu" });
-      if (ai) return sendJson(res, 200, remember("workflow", json.workflowId, await analyzer.analyzeWorkflow(json, STANDARDS)));
+      if (ai) return sendJson(res, 200, remember("workflow", json.workflowId, await analyzer.analyzeWorkflow(json, STANDARDS, who)));
       await delay(900);
       return sendJson(res, 200, remember("workflow", json.workflowId, demo.analyzeWorkflow(json.workflow, json.rules)));
     case "POST /api/chat":
-      if (ai) return sendJson(res, 200, await analyzer.chat(json, STANDARDS));
+      if (ai) return sendJson(res, 200, await analyzer.chat(json, STANDARDS, who));
       await delay(600);
       return sendJson(res, 200, demo.chatReply(json.messages || [], json.context));
   }
@@ -230,7 +254,7 @@ const server = http
       serveStatic(req, res, url);
     } catch (e) {
       console.error(`[api] ${req.method} ${url.pathname}:`, e.message);
-      sendJson(res, 502, { error: e.message });
+      sendJson(res, e.status || 502, { error: e.message });
     }
   })
   .listen(PORT, () => {

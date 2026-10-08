@@ -67,6 +67,7 @@ podman run -d --name morpheus-ai --user root -p 3000:3000 --env-file .env ghcr.i
 | **Workflow Analizi** | AAP workflow akış diyagramı (success/failure/always), akış standart analizi |
 | **Morpheus'a Sor** | Sohbet; bağlam olarak job template / workflow / son analiz seçilebilir, standartlar AI'a otomatik gönderilir |
 | **Standartlar** | Kural kataloğu (STD / JT / WF); aç/kapat, özel kural ekle |
+| **Token Kullanımı** | Günlük token grafiği ve limit, kullanıcıya / türe göre dağılım, her sorgunun token kullanımı, CSV dışa aktarma |
 | **AI Logları** | GenAI ve AAP'ye giden her istek ve dönen cevap (gizli alanlar maskeli), token kullanımı |
 | **Ayarlar** | GenAI ve AAP bağlantı durumu ve testi, API sözleşmesi |
 
@@ -77,6 +78,13 @@ API yolu otomatik algılanır (AAP 2.5/2.6: `/api/controller/v2`, 2.4/AWX: `/api
 
 AAP API'si playbook dosya içeriğini sunmaz; template analizi job template **tanımı** (envanter, credential, extra_vars, survey,
 verbosity, timeout, execution environment, bildirimler...) üzerinden yapılır. Playbook YAML'ı editöre yapıştırılarak ayrıca analiz edilebilir.
+
+## Token kullanımı ve limitler
+
+- Her AI çağrısı `data/usage/YYYY-MM-DD.jsonl` dosyasına kaydedilir: zaman, kullanıcı, IP, tür, sorgu metni, model, girdi/çıktı/toplam token.
+- **Ayarlar → Token limitleri**: günlük toplam limit ve kullanıcı başına günlük limit (0 = sınırsız). Limit dolunca yeni AI istekleri `429` ile reddedilir ve gateway'e hiç gidilmez; gün `USAGE_TIMEZONE`'a göre 00:00'da sıfırlanır.
+- Kullanıcı adı ilk girişte arayüzde sorulur ve `X-Morpheus-User` header'ı ile gönderilir (doğrulanmaz). Önde SSO yapan bir proxy varsa `.env`'de `USER_HEADER` ile onun header'ı kullanılabilir.
+- Gateway `usage` alanı döndürmezse token sayısı karakter sayısından tahmin edilir ve raporda "≈" ile işaretlenir.
 
 ## Loglar
 

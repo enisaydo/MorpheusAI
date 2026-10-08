@@ -19,6 +19,8 @@
       <small>Ansible Uyum Denetçisi</small>
     </a>
     <div class="masthead-right">
+      <a class="chip link-chip" id="tokenChip" href="#/usage" title="Bugünkü token kullanımı"><span>Token: —</span></a>
+      <button class="chip link-chip" id="userChip" title="Kullanıcı adınızı değiştirin"><span>Kullanıcı</span></button>
       <span class="chip" id="aiChip" title="AI bağlantısı"><i></i><span>AI</span></span>
       <span class="chip" id="aapChip" title="Ansible Automation Platform"><i></i><span>AAP</span></span>
     </div>
@@ -34,6 +36,7 @@
       <a href="#/oracle" data-route="oracle">Morpheus'a Sor</a>
       <div class="nav-group">Yönetim</div>
       <a href="#/standards" data-route="standards">Standartlar</a>
+      <a href="#/usage" data-route="usage">Token Kullanımı</a>
       <a href="#/logs" data-route="logs">AI Logları</a>
       <a href="#/settings" data-route="settings">Ayarlar</a>
     </nav>
@@ -171,6 +174,49 @@
         </div>
       </section>
 
+      <!-- ---------- USAGE ---------- -->
+      <section class="view" data-view="usage">
+        <div class="page-head">
+          <div><h1>Token Kullanımı</h1><p>Hangi sorgu ne kadar token kullandı, kim kullandı. Günlük limitler Ayarlar'dan belirlenir.</p></div>
+          <button class="btn secondary" id="usageCsv">CSV indir</button>
+        </div>
+        <div class="card">
+          <div class="toolbar">
+            <div class="seg" id="usageRange">
+              <button data-days="1">Bugün</button>
+              <button data-days="7" class="on">7 gün</button>
+              <button data-days="30">30 gün</button>
+            </div>
+            <label class="muted sm">Başlangıç <input type="date" id="usageFrom" class="input sm" /></label>
+            <label class="muted sm">Bitiş <input type="date" id="usageTo" class="input sm" /></label>
+            <select id="usageUser" class="input sm"><option value="">Tüm kullanıcılar</option></select>
+            <select id="usageKind" class="input sm">
+              <option value="">Tüm türler</option>
+              <option value="chat">Sohbet</option>
+              <option value="analyze-template">Template analizi</option>
+              <option value="analyze-workflow">Workflow analizi</option>
+            </select>
+          </div>
+          <div class="kpis" id="usageKpis"></div>
+        </div>
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head"><h3>Günlük token kullanımı</h3><span class="muted sm" id="usageTz"></span></div>
+            <div class="chart" id="usageChart"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>Kullanıcıya göre</h3></div>
+            <div id="usageByUser"></div>
+            <div class="card-head" style="margin-top:18px"><h3>Türe göre</h3></div>
+            <div class="table-wrap"><table class="table" id="usageByKind"></table></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Sorgular</h3><span class="muted sm" id="usageCount"></span></div>
+          <div class="table-wrap"><table class="table" id="usageTable"></table></div>
+        </div>
+      </section>
+
       <!-- ---------- LOGS ---------- -->
       <section class="view" data-view="logs">
         <div class="page-head">
@@ -207,6 +253,23 @@
           </div>
         </div>
         <div class="card narrow">
+          <div class="card-head"><h3>Token limitleri</h3><span class="muted sm" id="limitInfo"></span></div>
+          <form id="limitForm" class="form">
+            <div class="grid-2">
+              <label>Günlük toplam limit (token)
+                <input class="input" name="dailyLimit" type="number" min="0" step="1000" placeholder="ör. 10000" />
+                <small>Tüm kullanıcıların bir günde harcayabileceği toplam token. 0 = sınırsız.</small>
+              </label>
+              <label>Kullanıcı başına günlük limit (token)
+                <input class="input" name="perUserDailyLimit" type="number" min="0" step="1000" placeholder="0" />
+                <small>Her kullanıcı için ayrı sınır. 0 = sınırsız.</small>
+              </label>
+            </div>
+            <small class="muted">Limit dolunca yeni AI istekleri reddedilir; limit her gün 00:00'da sıfırlanır. Bir isteğin harcayacağı token cevap gelince belli olduğundan, limiti dolduran son istek limiti biraz aşabilir.</small>
+            <div class="toolbar"><button class="btn primary" type="submit">Kaydet</button></div>
+          </form>
+        </div>
+        <div class="card narrow">
           <div class="card-head">
             <h3>Sistem mesajı <span class="muted sm">(role: "system")</span></h3>
             <span class="muted sm" id="promptInfo"></span>
@@ -227,6 +290,10 @@
         <div class="card narrow">
           <div class="card-head"><h3>Arayüz</h3></div>
           <form id="settingsForm" class="form">
+            <label>Kullanıcı adınız
+              <input class="input" name="userName" placeholder="ör. EnisA" maxlength="80" />
+              <small>Token raporlarında "kim kullandı" bilgisi olarak görünür.</small>
+            </label>
             <label>API Base URL
               <input class="input" name="apiBase" placeholder="/api" />
               <small>Varsayılan <code>/api</code>. Genelde değiştirmenize gerek yoktur.</small>

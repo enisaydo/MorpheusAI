@@ -4,7 +4,7 @@
  */
 const Settings = (() => {
   const KEY = "morpheus.settings";
-  const defaults = { apiBase: "/api", apiKey: "", model: "" };
+  const defaults = { apiBase: "/api", apiKey: "", model: "", userName: "" };
   let cache;
   const load = () => {
     if (cache) return cache;
@@ -27,6 +27,7 @@ const Api = (() => {
     const s = Settings.get();
     const headers = { "Content-Type": "application/json" };
     if (s.apiKey) headers.Authorization = `Bearer ${s.apiKey}`;
+    if (s.userName) headers["X-Morpheus-User"] = encodeURIComponent(s.userName); // token raporlarında "kim" bilgisi
     const res = await fetch(s.apiBase.replace(/\/$/, "") + path, {
       method,
       headers,
@@ -35,7 +36,7 @@ const Api = (() => {
     const text = await res.text();
     let data;
     try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
-    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    if (!res.ok) throw Object.assign(new Error(data.error || `HTTP ${res.status}`), { status: res.status });
     return data;
   }
 
@@ -53,11 +54,15 @@ const Api = (() => {
     workflow: (id) => request(`/workflows/${encodeURIComponent(id)}`),
     logs: (service) => request(`/logs?limit=200${service ? `&service=${service}` : ""}`),
     log: (id) => request(`/logs/${encodeURIComponent(id)}`),
+    usage: (q = {}) => request(`/usage?${new URLSearchParams(Object.entries(q).filter(([, v]) => v))}`),
+    usageToday: () => request("/usage/today"),
+    limits: () => request("/limits"),
+    saveLimits: (l) => request("/limits", { method: "POST", body: l }),
     prompts: () => request("/prompts"),
     savePrompts: ({ system, includeStandards }) => request("/prompts", { method: "POST", body: { system, includeStandards } }),
 
-    analyzeTemplate: ({ content, rules, customRules, prompt, templateId }) =>
-      request("/analyze/template", { method: "POST", body: { content, rules, customRules, prompt, templateId, ...meta() } }),
+    analyzeTemplate: ({ content, rules, customRules, prompt, templateId, title }) =>
+      request("/analyze/template", { method: "POST", body: { content, rules, customRules, prompt, templateId, title, ...meta() } }),
 
     analyzeWorkflow: ({ workflow, workflowId, rules, customRules, prompt }) =>
       request("/analyze/workflow", { method: "POST", body: { workflow, workflowId, rules, customRules, prompt, ...meta() } }),
@@ -75,6 +80,11 @@ GET  /api/workflows         → { id, name, description, owner, lastScore, nodeC
 GET  /api/workflows/:id     → { ...workflow, nodes: Node[], notifications?, settings? }
 GET  /api/prompts           → { system, includeStandards, defaults }
 POST /api/prompts           ← { system, includeStandards }   (role: "system" içeriği, sunucuda saklanır)
+GET  /api/usage?from=&to=&user=&kind=  → { total, days[], byUser[], byKind[], records[], limits, today }
+GET  /api/usage/today       → { date, total, dailyLimit, remaining, user, userTotal, perUserDailyLimit }
+GET  /api/limits            → { dailyLimit, perUserDailyLimit }        (0 = sınırsız)
+POST /api/limits            ← { dailyLimit, perUserDailyLimit }
+     Limit dolunca AI çağrıları 429 döner. Kullanıcı: X-Morpheus-User header'ı (veya .env USER_HEADER)
 GET  /api/logs[?service=]   → LogSummary[]          (GenAI / AAP çağrıları, en yeni önce)
 GET  /api/logs/:id          → { ...LogSummary, request: {headers, body}, response: {headers, body} }
 

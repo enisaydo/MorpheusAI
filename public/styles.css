@@ -59,6 +59,9 @@ code { font-family: var(--mono); font-size: 12.5px; background: var(--code-bg); 
 .chip.ok i { background: #5ba352; }
 .chip.warn i { background: var(--warning); }
 .chip.err i { background: #f0561d; }
+.link-chip { border: 0; cursor: pointer; font: 12px var(--sans); }
+.link-chip:hover { background: #3c3f42; text-decoration: none; }
+.chip.over { background: #7d1007; color: #fff; }
 .icon-btn { background: none; border: 0; color: inherit; font-size: 18px; width: 34px; height: 34px; cursor: pointer; border-radius: var(--radius); }
 .icon-btn:hover { background: rgba(127, 127, 127, .15); }
 .burger { display: none; }
@@ -86,6 +89,8 @@ code { font-family: var(--mono); font-size: 12.5px; background: var(--code-bg); 
 .toolbar.end { justify-content: flex-end; margin: 8px 0 0; }
 .toolbar .input { flex: 0 1 340px; }
 .toolbar .input.id-input { flex: 0 0 150px; }
+.toolbar select.input.sm { flex: 0 1 200px; }
+.toolbar input[type="date"].input { flex: 0 0 auto; }
 .toolbar-spacer { flex: 1; }
 
 .btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 16px; border-radius: var(--radius); border: 1px solid transparent; font: 400 14px var(--sans); cursor: pointer; white-space: nowrap; background: none; color: var(--primary); }
@@ -258,6 +263,30 @@ textarea.input { resize: vertical; }
 .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .15s; }
 .switch.on { background: var(--primary); }
 .switch.on::after { left: 21px; }
+
+/* ---------------- usage ---------------- */
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart .axis text { fill: var(--muted); font: 13px var(--sans); }
+.chart .grid line { stroke: var(--border-soft); }
+.chart .bar { fill: var(--primary); }
+.chart .hit { fill: transparent; cursor: default; }
+.chart .hit:hover + .bar, .chart .col:hover .bar { fill: var(--primary-hover); }
+.chart .limit { stroke: var(--danger); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.chart .limit-label { fill: var(--danger); font: 500 13px var(--sans); }
+.tip { position: absolute; pointer-events: none; background: #151515; color: #fff; font-size: 12px; padding: 6px 10px; border-radius: var(--radius); white-space: nowrap; transform: translate(-50%, -100%); margin-top: -8px; z-index: 5; }
+.tip b { font-weight: 500; }
+.hbar { display: grid; grid-template-columns: minmax(90px, 160px) 1fr auto; gap: 10px; align-items: center; padding: 5px 0; font-size: 13px; }
+.hbar .track { height: 10px; background: var(--border-soft); border-radius: 0 4px 4px 0; overflow: hidden; }
+.hbar .fill { height: 100%; background: var(--primary); border-radius: 0 4px 4px 0; min-width: 2px; }
+.hbar .val { font-variant-numeric: tabular-nums; color: var(--text); }
+.hbar .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.progress { height: 6px; background: var(--border-soft); border-radius: 3px; overflow: hidden; margin-top: 6px; }
+.progress i { display: block; height: 100%; background: var(--primary); }
+.progress i.warn { background: var(--warning); }
+.progress i.over { background: var(--danger); }
+.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.q-cell { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---------------- logs ---------------- */
 .status-ok { color: var(--success); font-weight: 500; }

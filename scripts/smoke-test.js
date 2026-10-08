@@ -118,7 +118,11 @@ function fakeGateway() {
               missing: ["handlers"],
             }) + "\n```"
           : "Merhaba, ben **Morpheus** (sahte gateway).";
-        return send(200, { choices: [{ message: { role: "assistant", content } }] });
+        return send(200, {
+          choices: [{ message: { role: "assistant", content }, finish_reason: "stop" }],
+          model: "test-model-2026",
+          usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
+        });
       }
       send(404, {});
     });
@@ -216,6 +220,38 @@ async function genaiSuite() {
     assert(chatLog.request.body.max_completion_tokens === 1440, "sayaç alanları (max_completion_tokens) maskelenmedi");
     const tmsLog = await (await fetch(`${base}/api/logs/${logs.find((l) => l.kind === "tms-token").id}`)).json();
     assert(!JSON.stringify(tmsLog).includes('p@ss'), "TMS log kaydında parola maskelendi");
+
+    // ---- token kullanımı & limitler ----
+    const asUser = (user, content) => fetch(`${base}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Morpheus-User": encodeURIComponent(user) },
+      body: JSON.stringify({ messages: [{ role: "user", content }] }),
+    });
+    assert((await asUser("Ayşe Çelik", "nginx template'i nasıl?")).ok, "kullanıcı adıyla sohbet");
+    const rep = await (await fetch(`${base}/api/usage`)).json();
+    const ayse = rep.byUser.find((u) => u.key === "Ayşe Çelik");
+    assert(ayse && ayse.totalTokens === 120 && ayse.requests === 1, "kullanım Türkçe karakterli kullanıcı adıyla kaydedildi (120 token)");
+    const rec = rep.records.find((r) => r.user === "Ayşe Çelik");
+    assert(rec.question === "nginx template'i nasıl?" && rec.promptTokens === 100 && rec.completionTokens === 20 && rec.logId, "sorgu metni, girdi/çıktı token'ı ve log bağlantısı kaydedildi");
+    assert(rep.byKind.some((k) => k.key === "analyze-template") && rep.total.errors >= 1, "türe göre dağılım ve hatalı istekler raporlandı");
+    assert(rep.days.at(-1).totalTokens === rep.today.total && rep.today.total > 0, "günlük toplam bugünün kullanımıyla tutarlı");
+
+    const lim = await postJson(base, "/api/limits", { dailyLimit: rep.today.total, perUserDailyLimit: 0 });
+    assert(lim.dailyLimit === rep.today.total, "günlük limit Ayarlar'dan kaydedildi");
+    const blocked = await asUser("Ayşe Çelik", "tekrar");
+    assert(blocked.status === 429 && /Günlük token limiti doldu/.test((await blocked.json()).error), "limit dolunca istek 429 ile reddedildi");
+    const callsBefore = seen.chatCalls;
+    await asUser("Mehmet", "deneme");
+    assert(seen.chatCalls === callsBefore, "limit dolunca gateway'e hiç istek gitmedi");
+
+    await postJson(base, "/api/limits", { dailyLimit: 0, perUserDailyLimit: 120 });
+    const userBlocked = await asUser("Ayşe Çelik", "bir daha");
+    const otherOk = await asUser("Mehmet", "merhaba");
+    assert(userBlocked.status === 429 && otherOk.ok, "kullanıcı başına limit yalnızca o kullanıcıyı engelledi");
+    const badLim = await fetch(`${base}/api/limits`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dailyLimit: -5 }) });
+    assert(badLim.status === 400, "geçersiz limit değeri reddedildi");
+    const today = await (await fetch(`${base}/api/usage/today`, { headers: { "X-Morpheus-User": "Mehmet" } })).json();
+    assert(today.user === "Mehmet" && today.userTotal === 120, "bugünkü kullanıcı kullanımı döndü");
   } finally {
     srv.kill();
     gw.close();
