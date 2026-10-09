@@ -65,6 +65,7 @@ podman run -d --name morpheus-ai --user root -p 3000:3000 --env-file .env ghcr.i
 | **Genel Bakış** | AAP'deki job template ve workflow'lar, uyum skorları |
 | **Template Analizi** | AAP job template tanımı veya playbook YAML'ı; kural seçimi, ek talimat, bulgular + eksikler + düzeltmeler |
 | **Workflow Analizi** | AAP workflow akış diyagramı (success/failure/always), akış standart analizi |
+| **Analiz Geçmişi** | Tüm analizler: zaman, kullanıcı, hedef, skor, ihlal edilen kurallar; en sık ihlal edilen kurallar, hedef bazında skor değişimi, CSV |
 | **Morpheus'a Sor** | Sohbet; bağlam olarak job template / workflow / son analiz seçilebilir, standartlar AI'a otomatik gönderilir |
 | **Standartlar** | Kural kataloğu (STD / JT / WF); aç/kapat, özel kural ekle |
 | **Token Kullanımı** | Günlük token grafiği ve limit, kullanıcıya / türe göre dağılım, her sorgunun token kullanımı, CSV dışa aktarma |
@@ -101,6 +102,12 @@ LDAP_BIND_DN={{username}}@kurum.local
 - `LDAP_REQUIRED_GROUP`: yalnızca bu grubun (doğrudan) üyeleri girebilir. `LDAP_ADMIN_GROUP`: limit ve sistem mesajını yalnızca bu grup değiştirebilir.
 - Oturum HMAC imzalı, HttpOnly çerezde tutulur (`SESSION_TTL_HOURS`). Boş parola reddedilir; 15 dakikada 5 hatalı deneme kullanıcıyı ve IP'yi 15 dakika kilitler.
 - `ldaps` (636) veya `LDAP_STARTTLS=true` kullanın; düz 389 parolayı ağda şifresiz gönderir.
+
+## Analiz geçmişi
+
+Her template ve workflow analizi `data/history/YYYY-MM-DD.jsonl` dosyasına kaydedilir: zaman, kullanıcı, hedef (AAP ID ve adı),
+skor, durum, tüm bulgular (kural, önem, açıklama, satır/düğüm, düzeltme), eksikler, uygulanan kurallar ve ek talimat.
+Genel Bakış'taki "son skor" bu kayıtlardan okunur; servis yeniden başlatılınca kaybolmaz.
 
 ## Token kullanımı ve limitler
 
@@ -156,6 +163,7 @@ lib/logger.js        istek/cevap logları (maskeli)
 lib/ldap.js          bağımlılıksız LDAPv3 istemcisi (bind, search, StartTLS)
 lib/auth.js          LDAP girişi, oturum çerezi, kilitleme
 lib/usage.js         token kullanımı ve limitler
+lib/history.js       analiz geçmişi
 lib/analyzer.js      prompt oluşturma ve AI cevabını AnalysisResult'a dönüştürme
 lib/demo.js          demo kural motoru
 lib/env.js           .env yükleyici

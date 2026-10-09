@@ -346,3 +346,12 @@ textarea.input { resize: vertical; }
   .masthead-right .chip span { display: none; }
   .result-head { flex-direction: column; align-items: flex-start; }
 }
+
+/* ---------------- history ---------------- */
+.clickable-row { cursor: pointer; border-radius: var(--radius); }
+.clickable-row:hover { background: var(--hover); }
+.table tr.current td { background: var(--primary-soft); }
+.hbar .name .label { margin-right: 4px; }
+.sev-counts { display: flex; flex-wrap: wrap; gap: 4px 8px; min-width: 150px; }
+.sev-count { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.sev-count b { font-weight: 500; font-variant-numeric: tabular-nums; }

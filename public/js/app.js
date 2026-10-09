@@ -31,7 +31,7 @@ const activeRules = (scope) => allRules().filter((r) => (!scope || r.scope === s
 /* ================================================================== */
 /*  Router                                                             */
 /* ================================================================== */
-const ROUTES = ["dashboard", "template", "workflow", "oracle", "standards", "usage", "logs", "settings"];
+const ROUTES = ["dashboard", "template", "workflow", "oracle", "history", "standards", "usage", "logs", "settings"];
 
 function route() {
   const [name, arg] = location.hash.replace(/^#\/?/, "").split("/");
@@ -44,6 +44,7 @@ function route() {
   if (r === "oracle") setTimeout(() => $("#chatText").focus(), 50);
   if (r === "logs") loadLogs();
   if (r === "usage") loadUsage();
+  if (r === "history") loadHistory();
   if (r === "settings") loadLimits();
   setLogAuto(r === "logs" && $("#logAuto").checked);
   window.scrollTo(0, 0);
@@ -231,7 +232,7 @@ function renderResult(root, res, { kind, title }) {
         <span class="label ${res.status === "compliant" ? "green" : res.status === "warning" ? "gold" : "red"}">${STATUS_LABEL[res.status] || esc(res.status)}</span>
         <h2>${esc(title)}</h2>
         <div>${esc(res.summary || "")}</div>
-        <div class="engine">${esc(ENGINE_LABEL[res.engine] || res.engine || "")}</div>
+        <div class="engine">${esc(ENGINE_LABEL[res.engine] || res.engine || "")}${res.analyzedAt ? ` · ${esc(fmtTime(res.analyzedAt))} · <a href="#" data-act="history">geçmişte gör</a>` : ""}</div>
       </div>
     </div>
     <div class="sev-summary">${counts.map(([s, n]) => `${sevTag(s)}<span class="sm" style="margin-right:6px">× ${n}</span>`).join("") || `<span class="muted">Bulgu yok</span>`}</div>
@@ -265,6 +266,7 @@ function renderResult(root, res, { kind, title }) {
     const act = ev.target.closest("[data-act]")?.dataset.act;
     if (act === "ask") askAboutAnalysis(title);
     if (act === "md") copyText(markdownReport(res, title));
+    if (act === "history") { ev.preventDefault(); showHistory(res.historyId); }
     if (act === "json") download(`morpheus-${kind}-rapor.json`, JSON.stringify(res, null, 2));
   };
 }
@@ -673,6 +675,137 @@ async function showLog(id) {
   } catch (err) {
     toast(err.message, true);
   }
+}
+
+/* ================================================================== */
+/*  Analiz geçmişi                                                     */
+/* ================================================================== */
+const TARGET_KIND = { template: "Template", workflow: "Workflow" };
+
+function setHistRange(days) {
+  const to = new Date(), from = new Date();
+  from.setDate(to.getDate() - (days - 1));
+  $("#histFrom").value = isoDay(from);
+  $("#histTo").value = isoDay(to);
+  $$("#histRange button").forEach((b) => b.classList.toggle("on", Number(b.dataset.days) === days));
+}
+
+async function loadHistory() {
+  if (!$("#histFrom").value) setHistRange(30);
+  try {
+    const r = await Api.history({
+      from: $("#histFrom").value, to: $("#histTo").value, kind: $("#histKind").value,
+      user: $("#histUser").value, target: $("#histTarget").value.trim(), rule: State.histRule,
+    });
+    State.history = r;
+    renderHistory(r);
+  } catch (e) {
+    $("#histKpis").innerHTML = errorView(e);
+  }
+}
+
+const changeText = (c) =>
+  c > 0 ? `<span class="status-ok">▲ +${c}</span>` : c < 0 ? `<span class="status-err">▼ ${c}</span>` : `<span class="muted">—</span>`;
+
+function renderHistory(r) {
+  const us = $("#histUser"), cur = us.value;
+  us.innerHTML = `<option value="">Tüm kullanıcılar</option>` + r.users.map((u) => `<option>${esc(u)}</option>`).join("");
+  us.value = r.users.includes(cur) ? cur : "";
+  $("#histRuleFilter").innerHTML = State.histRule
+    ? `<span class="label blue">Kural: ${esc(State.histRule)} <a href="#" id="histRuleClear" title="Filtreyi kaldır">✕</a></span>` : "";
+
+  const top = r.byRule[0];
+  $("#histKpis").innerHTML = [
+    ["Analiz sayısı", fmtNum(r.total.analyses), `${r.total.targets} farklı template/workflow`],
+    ["Ortalama skor", r.total.avgScore ?? "—", "seçili dönemde"],
+    ["Uyumsuz analiz", fmtNum(r.total.nonCompliant), "skor < 60"],
+    ["En sık ihlal", top ? esc(top.ruleId) : "—", top ? `${top.analyses} analizde · ${esc(top.title || "")}` : "ihlal yok"],
+  ].map(([l, v, s]) => `<div class="kpi"><div class="k-label">${l}</div><div class="k-val">${v}</div><div class="k-sub">${s}</div></div>`).join("");
+
+  const maxR = Math.max(1, ...r.byRule.map((x) => x.analyses));
+  $("#histRules").innerHTML = r.byRule.slice(0, 12).map((x) => `
+    <div class="hbar clickable-row" data-rule="${esc(x.ruleId)}" title="${esc(x.ruleId)} — ${esc(x.title || "")}: ${x.analyses} analizde, toplam ${x.findings} bulgu. Filtrelemek için tıklayın.">
+      <span class="name">${sevTag(x.severity)} <span class="mono">${esc(x.ruleId)}</span></span>
+      <div class="track"><div class="fill" style="width:${(x.analyses / maxR) * 100}%"></div></div>
+      <span class="val">${fmtNum(x.analyses)}</span>
+    </div>`).join("") || `<p class="muted">Bu dönemde ihlal yok.</p>`;
+
+  $("#histTargets").innerHTML = `<tr><th>Hedef</th><th class="num">Analiz</th><th>Son skor</th><th class="num">Değişim</th><th>Son analiz</th></tr>` +
+    (r.byTarget.slice(0, 30).map((t) => `<tr class="clickable" data-target="${esc(t.targetId || t.targetName)}">
+      <td><div class="t-name">${esc(t.targetName)}</div><div class="t-sub">${TARGET_KIND[t.kind]}${t.targetId ? ` · #${esc(t.targetId)}` : ""}</div></td>
+      <td class="num">${t.count}</td><td>${scoreBar(t.last)}</td><td class="num">${t.count > 1 ? changeText(t.change) : "—"}</td>
+      <td class="mono sm">${esc(fmtTime(t.lastTime))}</td></tr>`).join("") || `<tr><td colspan="5" class="muted">—</td></tr>`);
+
+  $("#histCount").textContent = `${r.records.length}${r.records.length >= 500 ? "+ (en yeni 500)" : ""} analiz`;
+  $("#histTable").innerHTML =
+    `<tr><th>Zaman</th><th>Kullanıcı</th><th>Hedef</th><th>Skor</th><th>Durum</th><th>Bulgular</th><th>İhlal edilen kurallar</th></tr>` +
+    (r.records.map((x) => `<tr class="clickable" data-hist="${esc(x.id)}">
+      <td class="mono">${esc(fmtTime(x.time))}</td><td>${esc(x.user)}</td>
+      <td><div class="t-name">${esc(x.targetName)}</div><div class="t-sub">${TARGET_KIND[x.kind]}${x.targetId ? ` · #${esc(x.targetId)}` : ""}</div></td>
+      <td>${scoreBar(x.score)}</td>
+      <td>${statusLabel(x.status)}</td>
+      <td><div class="sev-counts">${SEV_ORDER.filter((s) => x.counts?.[s]).map((s) => `<span class="sev-count">${sevTag(s)}<b>${x.counts[s]}</b></span>`).join("") || `<span class="muted">yok</span>`}</div></td>
+      <td class="q-cell mono sm" title="${esc(x.failedRules.join(", "))}">${esc(x.failedRules.join(", ")) || "—"}</td></tr>`).join("") ||
+      `<tr><td colspan="7" class="muted">Bu dönemde analiz yok.</td></tr>`);
+}
+
+const statusLabel = (s) =>
+  `<span class="label ${s === "compliant" ? "green" : s === "warning" ? "gold" : "red"}">${STATUS_LABEL[s] || esc(s || "—")}</span>`;
+
+async function showHistory(id) {
+  try {
+    const h = await Api.historyItem(id);
+    const link = h.targetId ? `#/${h.kind}/${encodeURIComponent(h.targetId)}` : null;
+    modal(`${TARGET_KIND[h.kind]} analizi · ${h.targetName}`, `
+      <div class="result-head">
+        ${gauge(h.score ?? 0)}
+        <div>
+          ${statusLabel(h.status)}
+          <h2>${esc(h.targetName)}</h2>
+          <div>${esc(h.summary || "")}</div>
+          <div class="engine">${esc(ENGINE_LABEL[h.engine] || h.engine || "")}</div>
+        </div>
+      </div>
+      <dl class="kv">
+        <dt>Analiz zamanı</dt><dd>${esc(fmtTime(h.time))}</dd>
+        <dt>Kullanıcı</dt><dd>${esc(h.user)}</dd>
+        <dt>Hedef</dt><dd>${TARGET_KIND[h.kind]}${h.targetId ? ` · #${esc(h.targetId)}` : ` · içerik özeti ${esc(h.contentHash || "")}`}</dd>
+        <dt>Uygulanan kurallar</dt><dd>${h.rules?.length ? `${h.rules.length} kural` : "tümü"}</dd>
+        ${h.prompt ? `<dt>Ek talimat</dt><dd>${esc(h.prompt)}</dd>` : ""}
+      </dl>
+      <h4>Bulgular (${h.findings.length})</h4>
+      ${h.findings.map((f, i) => findingHtml(f, i, "history")).join("") || `<p class="muted">Standart ihlali bulunmadı.</p>`}
+      ${h.missing?.length ? `<h4>Eksikler</h4>${h.missing.map((m) => `<div class="missing-item">${esc(m)}</div>`).join("")}` : ""}
+      ${h.timeline.length > 1 ? `<h4>Bu hedefin analiz geçmişi</h4>
+        <div class="table-wrap"><table class="table">
+          <tr><th>Zaman</th><th>Kullanıcı</th><th>Skor</th><th>İhlal edilen kurallar</th></tr>
+          ${h.timeline.map((t) => `<tr class="${t.id === h.id ? "current" : "clickable"}" ${t.id === h.id ? "" : `data-hist="${esc(t.id)}"`}>
+            <td class="mono">${esc(fmtTime(t.time))}${t.id === h.id ? " <span class='label blue'>bu analiz</span>" : ""}</td>
+            <td>${esc(t.user)}</td><td>${scoreBar(t.score)}</td><td class="mono sm">${esc(t.failedRules.join(", ")) || "—"}</td></tr>`).join("")}
+        </table></div>` : ""}
+      <div class="toolbar end" style="margin-top:12px">
+        <button class="btn link sm" id="histJson">JSON indir</button>
+        ${link ? `<a class="btn primary sm" href="${link}" id="histReanalyze">Yeniden analiz et</a>` : ""}
+      </div>`, { wide: true });
+    $("#histJson").onclick = () => download(`morpheus-analiz-${h.id}.json`, JSON.stringify(h, null, 2));
+    if (link) $("#histReanalyze").onclick = () => closeModal();
+    $("#modalBody").onclick = (e) => {
+      const tr = e.target.closest("[data-hist]");
+      if (tr) showHistory(tr.dataset.hist);
+    };
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
+function historyCsv() {
+  const r = State.history;
+  if (!r) return;
+  const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const lines = [["zaman", "kullanici", "tur", "hedef_id", "hedef", "skor", "durum", "kritik", "yuksek", "orta", "dusuk", "bilgi", "ihlal_edilen_kurallar", "motor"].join(";"),
+    ...r.records.map((x) => [x.time, x.user, x.kind, x.targetId, x.targetName, x.score, x.status,
+      x.counts.critical, x.counts.high, x.counts.medium, x.counts.low, x.counts.info, x.failedRules.join(" "), x.engine].map(q).join(";"))];
+  download(`morpheus-analiz-gecmisi-${r.from}_${r.to}.csv`, "﻿" + lines.join("\n"), "text/csv;charset=utf-8");
 }
 
 /* ================================================================== */
@@ -1140,6 +1273,45 @@ function bindEvents() {
   };
   $("#logRefresh").onclick = loadLogs;
   $("#logAuto").onchange = (e) => setLogAuto(e.target.checked);
+
+  // analiz geçmişi
+  $("#histRange").onclick = (e) => {
+    const b = e.target.closest("[data-days]");
+    if (!b) return;
+    setHistRange(Number(b.dataset.days));
+    loadHistory();
+  };
+  ["#histFrom", "#histTo"].forEach((id) => ($(id).onchange = () => {
+    $("#histRange button").forEach((b) => b.classList.remove("on"));
+    loadHistory();
+  }));
+  $("#histKind").onchange = loadHistory;
+  $("#histUser").onchange = loadHistory;
+  let histTimer;
+  $("#histTarget").oninput = () => { clearTimeout(histTimer); histTimer = setTimeout(loadHistory, 350); };
+  $("#histCsv").onclick = historyCsv;
+  $("#histRules").onclick = (e) => {
+    const r = e.target.closest("[data-rule]");
+    if (!r) return;
+    State.histRule = r.dataset.rule;
+    loadHistory();
+  };
+  $("#histRuleFilter").onclick = (e) => {
+    if (e.target.id !== "histRuleClear") return;
+    e.preventDefault();
+    State.histRule = "";
+    loadHistory();
+  };
+  $("#histTargets").onclick = (e) => {
+    const tr = e.target.closest("[data-target]");
+    if (!tr) return;
+    $("#histTarget").value = tr.dataset.target;
+    loadHistory();
+  };
+  $("#histTable").onclick = (e) => {
+    const tr = e.target.closest("[data-hist]");
+    if (tr) showHistory(tr.dataset.hist);
+  };
 
   // token kullanımı
   $("#usageRange").onclick = (e) => {

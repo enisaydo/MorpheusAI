@@ -318,12 +318,9 @@ async function aapSuite() {
   const { srv: api, seen } = fakeAap();
   await new Promise((r) => api.listen(3994, "127.0.0.1", r));
   const base = "http://127.0.0.1:3993";
-  const srv = startServer(3993, {
-    MORPHEUS_MODE: "demo",
-    AAP_URL: "http://127.0.0.1:3994",
-    AAP_TOKEN: "aap-tok",
-    AAP_API_PREFIX: "",
-  });
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "morpheus-hist-"));
+  const aapEnv = { MORPHEUS_MODE: "demo", AAP_URL: "http://127.0.0.1:3994", AAP_TOKEN: "aap-tok", AAP_API_PREFIX: "", MORPHEUS_DATA_DIR: dataDir };
+  let srv = startServer(3993, aapEnv);
   try {
     await waitFor(base);
     const health = await (await fetch(`${base}/api/health?deep=1`)).json();
@@ -353,6 +350,34 @@ async function aapSuite() {
     const logs = await (await fetch(`${base}/api/logs?service=aap`)).json();
     const one = await (await fetch(`${base}/api/logs/${logs[0].id}`)).json();
     assert(logs.length > 5 && !JSON.stringify(one).includes("aap-tok"), "AAP çağrıları loglandı, token maskelendi");
+
+    // ---- Analiz geçmişi ----
+    assert(res.historyId && res.analyzedAt, "analiz sonucu geçmiş kaydı kimliği ve zamanıyla döndü");
+    const res2 = await (await fetch(`${base}/api/analyze/template`, {
+      method: "POST", headers: { "Content-Type": "application/json", "X-Morpheus-User": "Zeynep" },
+      body: JSON.stringify({ content: jt.content, templateId: "7", title: "nginx kurulum" }),
+    })).json();
+    const hist = await (await fetch(`${base}/api/history`)).json();
+    const h7 = hist.records.find((r) => r.id === res2.historyId);
+    assert(h7 && h7.score === res2.score && h7.user === "Zeynep" && h7.targetName === "nginx kurulum" && h7.failedRules.includes("JT-002") && h7.counts.critical >= 1,
+      "geçmişte skor, kullanıcı, hedef adı, ihlal edilen kurallar ve önem sayıları var");
+    assert(hist.records.some((r) => r.kind === "workflow" && r.targetId === "9"), "workflow analizi de geçmişe yazıldı");
+    const jt2 = hist.byRule.find((r) => r.ruleId === "JT-002");
+    assert(jt2 && jt2.analyses === 2 && jt2.severity === "critical", "en sık ihlal edilen kurallar sayıldı (JT-002 → 2 analiz)");
+    const tgt = hist.byTarget.find((t) => t.kind === "template" && t.targetId === "7");
+    assert(tgt.count === 2 && tgt.change === 0 && tgt.targetName === "nginx kurulum", "hedef bazında analiz sayısı ve skor değişimi");
+    const detail = await (await fetch(`${base}/api/history/${res2.historyId}`)).json();
+    assert(detail.findings.length === res2.findings.length && detail.timeline.length === 2 && detail.findings[0].detail,
+      "analiz detayı tüm bulgularla ve aynı hedefin önceki analizleriyle döndü");
+    const byRule = await (await fetch(`${base}/api/history?rule=JT-008`)).json();
+    assert(byRule.records.length >= 1 && byRule.records.every((r) => r.failedRules.includes("JT-008")), "kurala göre filtreleme");
+
+    // Yeniden başlatma: skor geçmişten okunmalı
+    srv.kill();
+    srv = startServer(3993, aapEnv);
+    await waitFor(base);
+    const afterRestart = await (await fetch(`${base}/api/templates`)).json();
+    assert(afterRestart.find((t) => t.id === "7").lastScore === res2.score, "servis yeniden başlatıldıktan sonra son skor korundu");
   } finally {
     srv.kill();
     api.close();

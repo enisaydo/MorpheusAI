@@ -34,6 +34,7 @@
       <a href="#/template" data-route="template">Template Analizi</a>
       <a href="#/workflow" data-route="workflow">Workflow Analizi</a>
       <a href="#/oracle" data-route="oracle">Morpheus'a Sor</a>
+      <a href="#/history" data-route="history">Analiz Geçmişi</a>
       <div class="nav-group">Yönetim</div>
       <a href="#/standards" data-route="standards">Standartlar</a>
       <a href="#/usage" data-route="usage">Token Kullanımı</a>
@@ -171,6 +172,48 @@
             <input id="stdSearch" class="input" placeholder="Kural ara…" />
           </div>
           <div id="stdList"></div>
+        </div>
+      </section>
+
+      <!-- ---------- HISTORY ---------- -->
+      <section class="view" data-view="history">
+        <div class="page-head">
+          <div><h1>Analiz Geçmişi</h1><p>Yapılan tüm template ve workflow analizleri: ne zaman, kim, skor kaç, hangi kurallarda hata çıktı.</p></div>
+          <button class="btn secondary" id="histCsv">CSV indir</button>
+        </div>
+        <div class="card">
+          <div class="toolbar">
+            <div class="seg" id="histRange">
+              <button data-days="7">7 gün</button>
+              <button data-days="30" class="on">30 gün</button>
+              <button data-days="90">90 gün</button>
+            </div>
+            <label class="muted sm">Başlangıç <input type="date" id="histFrom" class="input sm" /></label>
+            <label class="muted sm">Bitiş <input type="date" id="histTo" class="input sm" /></label>
+            <select id="histKind" class="input sm">
+              <option value="">Tüm türler</option>
+              <option value="template">Template</option>
+              <option value="workflow">Workflow</option>
+            </select>
+            <select id="histUser" class="input sm"><option value="">Tüm kullanıcılar</option></select>
+            <input id="histTarget" class="input sm" placeholder="Template / workflow adı veya ID" />
+            <span id="histRuleFilter"></span>
+          </div>
+          <div class="kpis" id="histKpis"></div>
+        </div>
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head"><h3>En sık ihlal edilen kurallar</h3><span class="muted sm">kaç analizde çıktı</span></div>
+            <div id="histRules"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>Hedeflere göre</h3><span class="muted sm">ilk → son skor</span></div>
+            <div class="table-wrap"><table class="table" id="histTargets"></table></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Analizler</h3><span class="muted sm" id="histCount"></span></div>
+          <div class="table-wrap"><table class="table" id="histTable"></table></div>
         </div>
       </section>
 

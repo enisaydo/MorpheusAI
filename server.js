@@ -24,6 +24,7 @@ const aap = require("./lib/aap");
 const logger = require("./lib/logger");
 const prompts = require("./lib/prompts");
 const usage = require("./lib/usage");
+const history = require("./lib/history");
 
 const auth = require("./lib/auth");
 
@@ -91,11 +92,28 @@ const catalog = {
   workflow: (id) => (CATALOG === "aap" ? aap.getWorkflow(id) : WORKFLOWS.find((x) => x.id === id)),
 };
 
-/* Son analiz skorları (bellek içi; AAP listelerinde "uyum" sütunu için) */
-const scores = new Map();
+/* Listelerdeki "uyum" sütunu: analiz geçmişindeki son skor (yeniden başlatmada korunur) */
 const withScore = (kind, list) =>
-  list.map((x) => ({ ...x, lastScore: scores.get(`${kind}:${x.id}`) ?? (x.source === "mock" ? x.lastScore : null) }));
-const remember = (kind, id, result) => (id != null && result?.score != null && scores.set(`${kind}:${id}`, result.score), result);
+  list.map((x) => {
+    const l = history.latestScore(kind, x.id);
+    return { ...x, lastScore: l ? l.score : x.source === "mock" ? x.lastScore : null, lastAnalyzedAt: l?.time || null };
+  });
+
+/** Analiz sonucunu geçmişe yazar ve sonucu (geçmiş kaydının id'siyle) döndürür */
+function remember(kind, json, result, who) {
+  const row = history.record({
+    kind,
+    targetId: kind === "template" ? json.templateId : json.workflowId,
+    targetName: kind === "template" ? json.title : json.workflow?.name,
+    content: kind === "template" ? json.content : JSON.stringify(json.workflow?.nodes || []),
+    result,
+    user: who.user,
+    ip: who.ip,
+    rules: json.rules,
+    prompt: json.prompt,
+  });
+  return { ...result, historyId: row.id, analyzedAt: row.time };
+}
 
 /* ------------------------------------------------------------------ */
 /*  HTTP                                                               */
@@ -232,6 +250,10 @@ async function handleApi(req, res, url) {
         from: url.searchParams.get("from"), to: url.searchParams.get("to"),
         user: url.searchParams.get("user") || undefined, kind: url.searchParams.get("kind") || undefined,
       }));
+    case "GET /api/history": {
+      const q = (k) => url.searchParams.get(k) || undefined;
+      return sendJson(res, 200, history.query({ from: q("from"), to: q("to"), kind: q("kind"), user: q("user"), target: q("target"), rule: q("rule") }));
+    }
     case "GET /api/usage/today":
       return sendJson(res, 200, { ...usage.today(who.user), mode: MODE });
     case "GET /api/limits":
@@ -243,14 +265,14 @@ async function handleApi(req, res, url) {
       return sendJson(res, 200, logger.list({ limit: Number(url.searchParams.get("limit") || 100), service: url.searchParams.get("service") || undefined }));
     case "POST /api/analyze/template":
       if (!json.content) return sendJson(res, 400, { error: "content zorunlu" });
-      if (ai) return sendJson(res, 200, remember("template", json.templateId, await analyzer.analyzeTemplate(json, STANDARDS, who)));
+      if (ai) return sendJson(res, 200, remember("template", json, await analyzer.analyzeTemplate(json, STANDARDS, who), who));
       await delay(900);
-      return sendJson(res, 200, remember("template", json.templateId, demo.analyzeTemplate(json.content, json.rules)));
+      return sendJson(res, 200, remember("template", json, demo.analyzeTemplate(json.content, json.rules), who));
     case "POST /api/analyze/workflow":
       if (!json.workflow) return sendJson(res, 400, { error: "workflow zorunlu" });
-      if (ai) return sendJson(res, 200, remember("workflow", json.workflowId, await analyzer.analyzeWorkflow(json, STANDARDS, who)));
+      if (ai) return sendJson(res, 200, remember("workflow", json, await analyzer.analyzeWorkflow(json, STANDARDS, who), who));
       await delay(900);
-      return sendJson(res, 200, remember("workflow", json.workflowId, demo.analyzeWorkflow(json.workflow, json.rules)));
+      return sendJson(res, 200, remember("workflow", json, demo.analyzeWorkflow(json.workflow, json.rules), who));
     case "POST /api/chat":
       if (ai) return sendJson(res, 200, await analyzer.chat(json, STANDARDS, who));
       await delay(600);
@@ -263,6 +285,10 @@ async function handleApi(req, res, url) {
   }
   if (req.method === "GET" && (m = url.pathname.match(/^\/api\/workflows\/(.+)$/))) {
     return sendDetail(res, "Workflow", () => catalog.workflow(decodeURIComponent(m[1])));
+  }
+  if (req.method === "GET" && (m = url.pathname.match(/^\/api\/history\/(.+)$/))) {
+    const h = history.get(decodeURIComponent(m[1]));
+    return h ? sendJson(res, 200, h) : sendJson(res, 404, { error: "Analiz kaydı bulunamadı" });
   }
   if (req.method === "GET" && (m = url.pathname.match(/^\/api\/logs\/(.+)$/))) {
     const e = logger.get(decodeURIComponent(m[1]));

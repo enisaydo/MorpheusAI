@@ -59,6 +59,8 @@ const Api = (() => {
     workflow: (id) => request(`/workflows/${encodeURIComponent(id)}`),
     logs: (service) => request(`/logs?limit=200${service ? `&service=${service}` : ""}`),
     log: (id) => request(`/logs/${encodeURIComponent(id)}`),
+    history: (q = {}) => request(`/history?${new URLSearchParams(Object.entries(q).filter(([, v]) => v))}`),
+    historyItem: (id) => request(`/history/${encodeURIComponent(id)}`),
     usage: (q = {}) => request(`/usage?${new URLSearchParams(Object.entries(q).filter(([, v]) => v))}`),
     usageToday: () => request("/usage/today"),
     limits: () => request("/limits"),
@@ -88,6 +90,8 @@ POST /api/auth/logout
 GET  /api/auth/me           → { enabled, user? }  (LDAP açık ve oturum yoksa 401)
 GET  /api/prompts           → { system, includeStandards, defaults }
 POST /api/prompts           ← { system, includeStandards }   (role: "system" içeriği, sunucuda saklanır)
+GET  /api/history?from=&to=&kind=&user=&target=&rule=  → { total, byRule[], byTarget[], records[] }  (analiz geçmişi)
+GET  /api/history/:id       → { ...analiz, findings[], timeline[] (aynı hedefin önceki analizleri) }
 GET  /api/usage?from=&to=&user=&kind=  → { total, days[], byUser[], byKind[], records[], limits, today }
 GET  /api/usage/today       → { date, total, dailyLimit, remaining, user, userTotal, perUserDailyLimit }
 GET  /api/limits            → { dailyLimit, perUserDailyLimit }        (0 = sınırsız)
