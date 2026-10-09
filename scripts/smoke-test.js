@@ -509,6 +509,30 @@ async function ldapSuite() {
     srv2.kill();
   }
 
+  // ---- LDAP_BIND_DN bir OU (tırnaklı, Podman'ın aktardığı gibi) → kullanici@alanadi ile bind ----
+  const base4 = "http://127.0.0.1:3984";
+  const srv4 = startServer(3984, {
+    MORPHEUS_MODE: "demo",
+    LDAP_SERVER: "127.0.0.1:3989",
+    LDAP_BASE_DN: '"DC=test,DC=local"',
+    LDAP_BIND_DN: '"OU=All Users,DC=test,DC=local"',
+  });
+  const login4 = (username, password) =>
+    fetch(`${base4}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }) });
+  try {
+    await waitFor(base4);
+    const h = await (await fetch(`${base4}/api/health`)).json();
+    assert(/^upn-bind \(kullanici@test\.local, arama: OU=All Users,DC=test,DC=local\)$/.test(h.auth.mode),
+      "OU verilince tırnaklar temizlendi, alan adı DN'den çıkarıldı (upn-bind)");
+    const r = await login4("ali", "dogru");
+    const b = await r.json();
+    assert(r.ok && b.user.displayName === "Ali Veli" && b.user.username === "ali", "OU + kullanıcı parolasıyla giriş (servis hesabı yok)");
+    assert((await login4("ali@test.local", "dogru")).ok, "kullanıcı tam UPN yazınca da giriş yapıldı");
+    assert((await login4("ali", "yanlis")).status === 401, "OU modunda yanlış parola reddedildi");
+  } finally {
+    srv4.kill();
+  }
+
   // ---- Sabit DN, parola YOK → anonim arama + kullanıcının kendi parolasıyla doğrulama ----
   const base3 = "http://127.0.0.1:3985";
   const srv3 = startServer(3985, {

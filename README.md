@@ -90,8 +90,9 @@ LDAP_BIND_DN={{username}}@kurum.local
 ```
 
 - `LDAP_SERVER`: ad, `ad:port` veya `ldap(s)://ad:port` (636 → otomatik ldaps).
+- `LDAP_BIND_DN` bir OU ise (`OU=All users,DC=fw,DC=kurum,DC=com`) kullanıcılar o OU altında aranır ve `kullanici@fw.kurum.com` ile kendi parolasıyla bağlanır; alan adı DC bileşenlerinden çıkarılır (`LDAP_UPN_SUFFIX` ile değiştirilebilir).
 - `LDAP_BIND_DN` örnekleri: `{{username}}@kurum.local`, `KURUM\{{username}}`, `uid={{username}},ou=people,dc=kurum,dc=local`.
-- `.env`'de değerleri tırnaksız yazın ve satır sonuna yorum eklemeyin.
+- Değerlerin başındaki/sonundaki tırnaklar otomatik temizlenir; satır sonuna yorum eklemeyin.
 
 - `LDAP_BIND_DN` `{{username}}` içeriyorsa kullanıcı kendi parolasıyla doğrudan bağlanır, servis hesabı gerekmez.
   Sabit bir DN ise kullanıcı `LDAP_BASE_DN` altında aranır, ardından kendi parolasıyla doğrulanır. Arama `LDAP_BIND_PASSWORD` varsa bu hesapla, yoksa anonim yapılır (sunucu anonim aramaya izin vermeli; AD varsayılan olarak vermez).
