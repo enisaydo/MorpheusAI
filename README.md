@@ -81,14 +81,24 @@ verbosity, timeout, execution environment, bildirimler...) üzerinden yapılır.
 
 ## LDAP ile giriş
 
-`.env`'de `LDAP_URL` tanımlanınca uygulamaya giriş zorunlu olur (Active Directory / OpenLDAP).
+`.env`'de üç değer yeterli; `LDAP_SERVER` dolunca uygulamaya giriş zorunlu olur (Active Directory / OpenLDAP):
 
-- **Servis hesabı ile (önerilen):** `LDAP_BIND_DN` + `LDAP_BIND_PASSWORD` ile bağlanılır, `LDAP_SEARCH_BASE` altında `LDAP_USER_FILTER` ile kullanıcı bulunur, kullanıcının DN'i ve parolasıyla doğrulanır.
-- **Servis hesabı olmadan:** `LDAP_USER_DN_TEMPLATE={{username}}@kurum.local` ile doğrudan bind.
+```env
+LDAP_SERVER=dc01.kurum.local:636
+LDAP_BASE_DN=DC=kurum,DC=local
+LDAP_BIND_DN={{username}}@kurum.local
+```
+
+- `LDAP_SERVER`: ad, `ad:port` veya `ldap(s)://ad:port` (636 → otomatik ldaps).
+- `LDAP_BIND_DN` örnekleri: `{{username}}@kurum.local`, `KURUM\{{username}}`, `uid={{username}},ou=people,dc=kurum,dc=local`.
+- `.env`'de değerleri tırnaksız yazın ve satır sonuna yorum eklemeyin.
+
+- `LDAP_BIND_DN` `{{username}}` içeriyorsa kullanıcı kendi parolasıyla doğrudan bağlanır, servis hesabı gerekmez.
+  Sabit bir DN ise servis hesabıdır: kullanıcı `LDAP_BASE_DN` altında aranır, ardından kendi parolasıyla doğrulanır; bu durumda `LDAP_BIND_PASSWORD` gerekir.
+- Varsayılan kullanıcı filtresi AD (`sAMAccountName`, `userPrincipalName`) ve OpenLDAP (`uid`) için çalışır; gerekirse `LDAP_USER_FILTER`.
 - `LDAP_REQUIRED_GROUP`: yalnızca bu grubun (doğrudan) üyeleri girebilir. `LDAP_ADMIN_GROUP`: limit ve sistem mesajını yalnızca bu grup değiştirebilir.
 - Oturum HMAC imzalı, HttpOnly çerezde tutulur (`SESSION_TTL_HOURS`). Boş parola reddedilir; 15 dakikada 5 hatalı deneme kullanıcıyı ve IP'yi 15 dakika kilitler.
-- Token raporlarındaki kullanıcı adı LDAP oturumundan alınır.
-- `ldaps://` veya `LDAP_STARTTLS=true` kullanın; düz `ldap://` parolayı ağda şifresiz gönderir.
+- `ldaps` (636) veya `LDAP_STARTTLS=true` kullanın; düz 389 parolayı ağda şifresiz gönderir.
 
 ## Token kullanımı ve limitler
 

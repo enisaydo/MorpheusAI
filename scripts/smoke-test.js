@@ -21,7 +21,9 @@ function assert(cond, msg) {
 
 function startServer(port, extraEnv) {
   const env = {
-    ...process.env, PORT: String(port), AI_BACKEND_URL: "", AI_LOG_FILE: "false", AAP_URL: "", LDAP_URL: "",
+    ...process.env, PORT: String(port), AI_BACKEND_URL: "", AI_LOG_FILE: "false", AAP_URL: "",
+    LDAP_URL: "", LDAP_SERVER: "", LDAP_BASE_DN: "", LDAP_BIND_DN: "", LDAP_BIND_PASSWORD: "", LDAP_SEARCH_BASE: "",
+    LDAP_USER_FILTER: "", LDAP_USER_DN_TEMPLATE: "", LDAP_REQUIRED_GROUP: "", LDAP_ADMIN_GROUP: "",
     MORPHEUS_DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), "morpheus-test-")),
     ...extraEnv,
   };
@@ -385,7 +387,7 @@ function fakeLdap() {
           const [, name, pw] = L.children(op.value);
           const dn = name.value.toString(), pass = pw.value.toString();
           const ok = (dn === "CN=svc,DC=test,DC=local" && pass === "svcpw") || pass === "" ||
-            Object.values(users).some((u) => u.dn === dn && u.pw === pass);
+            Object.entries(users).some(([sam, u]) => (u.dn === dn || `${sam}@test.local` === dn) && u.pw === pass); // DN veya UPN ile bind
           sock.write(msg(id, result(0x61, ok ? 0 : 49)));
         } else if (op.tag === 0x63) { // search
           const parts = L.children(op.value);
@@ -477,6 +479,41 @@ async function ldapSuite() {
     assert(/Max-Age=0/.test(out.headers.get("set-cookie")), "çıkışta çerez silindi");
   } finally {
     srv.kill();
+  }
+
+  // ---- Sadece üç değerle: LDAP_SERVER + LDAP_BASE_DN + LDAP_BIND_DN (kullanıcı şablonu) ----
+  const base2 = "http://127.0.0.1:3986";
+  const srv2 = startServer(3986, {
+    MORPHEUS_MODE: "demo",
+    LDAP_SERVER: "127.0.0.1:3989",
+    LDAP_BASE_DN: "DC=test,DC=local",
+    LDAP_BIND_DN: "{{username}}@test.local",
+  });
+  const login2 = (username, password) =>
+    fetch(`${base2}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }) });
+  try {
+    await waitFor(base2);
+    const h = await (await fetch(`${base2}/api/health`)).json();
+    assert(h.auth.enabled && h.auth.url === "ldap://127.0.0.1:3989" && h.auth.mode === "direct-bind", "3 değerle yapılandırma: sunucu adresi tamamlandı, doğrudan bind modu");
+    const r = await login2("ali", "dogru");
+    const b = await r.json();
+    assert(r.ok && b.user.displayName === "Ali Veli" && b.user.username === "ali", "servis hesabı olmadan giriş; ad bilgisi varsayılan filtreyle bulundu");
+    assert((await login2("ali", "yanlis")).status === 401, "3 değerle yapılandırmada yanlış parola reddedildi");
+  } finally {
+    srv2.kill();
+  }
+
+  // ---- Sabit servis hesabı DN'i ama parola yok → açık yapılandırma hatası ----
+  const base3 = "http://127.0.0.1:3985";
+  const srv3 = startServer(3985, {
+    MORPHEUS_MODE: "demo", LDAP_SERVER: "127.0.0.1:3989", LDAP_BASE_DN: "DC=test,DC=local", LDAP_BIND_DN: "CN=svc,DC=test,DC=local",
+  });
+  try {
+    await waitFor(base3);
+    const r = await fetch(`${base3}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: "ali", password: "dogru" }) });
+    assert(r.status === 500 && /LDAP_BIND_PASSWORD gerekli/.test((await r.json()).error), "parolasız servis hesabı için açık yapılandırma hatası");
+  } finally {
+    srv3.kill();
     ldap.close();
   }
 }
