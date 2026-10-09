@@ -372,11 +372,11 @@ function fakeLdap() {
     disari: { dn: "CN=Disari,OU=Users,DC=test,DC=local", pw: "x1", display: "Dışarıdan", groups: [] },
     kilit: { dn: "CN=Kilit,OU=Users,DC=test,DC=local", pw: "k", display: "Kilit", groups: [GROUP] },
   };
-  const seen = { filters: [] };
+  const seen = { filters: [], denyAnonymous: false, anonymousSearches: 0 };
   const msg = (id, op) => L.seq(0x30, [L.int(id), op]);
   const result = (tag, code) => L.seq(tag, [L.int(code, 0x0a), L.str(""), L.str(code ? "80090308: LdapErr: DSID-0C09042A, data 52e" : "")]);
   const srv = require("net").createServer((sock) => {
-    let buf = Buffer.alloc(0);
+    let buf = Buffer.alloc(0), bound = false;
     sock.on("data", (d) => {
       buf = Buffer.concat([buf, d]);
       for (let m; (m = L.readTlv(buf));) {
@@ -388,8 +388,14 @@ function fakeLdap() {
           const dn = name.value.toString(), pass = pw.value.toString();
           const ok = (dn === "CN=svc,DC=test,DC=local" && pass === "svcpw") || pass === "" ||
             Object.entries(users).some(([sam, u]) => (u.dn === dn || `${sam}@test.local` === dn) && u.pw === pass); // DN veya UPN ile bind
+          if (ok && pass) bound = true;
           sock.write(msg(id, result(0x61, ok ? 0 : 49)));
         } else if (op.tag === 0x63) { // search
+          if (!bound) seen.anonymousSearches++;
+          if (!bound && seen.denyAnonymous) { // AD varsayılanı: anonim arama → operationsError
+            sock.write(msg(id, result(0x65, 1)));
+            continue;
+          }
           const parts = L.children(op.value);
           const filterBytes = op.value.subarray(0); // ham filtre bayt kontrolü için
           const findEq = (t) => t.tag === 0xa3 ? [L.children(t.value).map((x) => x.value.toString())]
@@ -503,15 +509,28 @@ async function ldapSuite() {
     srv2.kill();
   }
 
-  // ---- Sabit servis hesabı DN'i ama parola yok → açık yapılandırma hatası ----
+  // ---- Sabit DN, parola YOK → anonim arama + kullanıcının kendi parolasıyla doğrulama ----
   const base3 = "http://127.0.0.1:3985";
   const srv3 = startServer(3985, {
     MORPHEUS_MODE: "demo", LDAP_SERVER: "127.0.0.1:3989", LDAP_BASE_DN: "DC=test,DC=local", LDAP_BIND_DN: "CN=svc,DC=test,DC=local",
   });
+  const login3 = (username, password) =>
+    fetch(`${base3}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }) });
   try {
     await waitFor(base3);
-    const r = await fetch(`${base3}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: "ali", password: "dogru" }) });
-    assert(r.status === 500 && /LDAP_BIND_PASSWORD gerekli/.test((await r.json()).error), "parolasız servis hesabı için açık yapılandırma hatası");
+    const h = await (await fetch(`${base3}/api/health`)).json();
+    assert(h.auth.mode === "anonymous-search", "parolasız bind DN → anonim arama modu");
+    const before = seen.anonymousSearches;
+    const r = await login3("ali", "dogru");
+    assert(r.ok && (await r.json()).user.displayName === "Ali Veli" && seen.anonymousSearches === before + 1,
+      "servis parolası olmadan giriş: kullanıcı anonim arandı, kendi parolasıyla doğrulandı");
+    assert((await login3("ali", "yanlis")).status === 401, "anonim aramada da yanlış kullanıcı parolası reddedildi");
+    assert((await login3("ali", "")).status === 400, "anonim aramada da boş kullanıcı parolası reddedildi");
+    seen.denyAnonymous = true;
+    const denied = await login3("ali", "dogru");
+    assert(denied.status === 502 && /anonim\) aramaya izin vermiyor/.test((await denied.json()).error),
+      "sunucu anonim aramayı reddederse (AD varsayılanı) açık hata mesajı");
+    seen.denyAnonymous = false;
   } finally {
     srv3.kill();
     ldap.close();

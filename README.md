@@ -94,7 +94,8 @@ LDAP_BIND_DN={{username}}@kurum.local
 - `.env`'de değerleri tırnaksız yazın ve satır sonuna yorum eklemeyin.
 
 - `LDAP_BIND_DN` `{{username}}` içeriyorsa kullanıcı kendi parolasıyla doğrudan bağlanır, servis hesabı gerekmez.
-  Sabit bir DN ise servis hesabıdır: kullanıcı `LDAP_BASE_DN` altında aranır, ardından kendi parolasıyla doğrulanır; bu durumda `LDAP_BIND_PASSWORD` gerekir.
+  Sabit bir DN ise kullanıcı `LDAP_BASE_DN` altında aranır, ardından kendi parolasıyla doğrulanır. Arama `LDAP_BIND_PASSWORD` varsa bu hesapla, yoksa anonim yapılır (sunucu anonim aramaya izin vermeli; AD varsayılan olarak vermez).
+- Giriş ekranında kullanıcının kendi parolası her durumda zorunludur.
 - Varsayılan kullanıcı filtresi AD (`sAMAccountName`, `userPrincipalName`) ve OpenLDAP (`uid`) için çalışır; gerekirse `LDAP_USER_FILTER`.
 - `LDAP_REQUIRED_GROUP`: yalnızca bu grubun (doğrudan) üyeleri girebilir. `LDAP_ADMIN_GROUP`: limit ve sistem mesajını yalnızca bu grup değiştirebilir.
 - Oturum HMAC imzalı, HttpOnly çerezde tutulur (`SESSION_TTL_HOURS`). Boş parola reddedilir; 15 dakikada 5 hatalı deneme kullanıcıyı ve IP'yi 15 dakika kilitler.
