@@ -67,6 +67,7 @@ podman run -d --name morpheus-ai --user root -p 3000:3000 --env-file .env ghcr.i
 | **Workflow Analizi** | AAP workflow akış diyagramı (success/failure/always), akış standart analizi |
 | **Analiz Geçmişi** | Tüm analizler: zaman, kullanıcı, hedef, skor, ihlal edilen kurallar; en sık ihlal edilen kurallar, hedef bazında skor değişimi, CSV |
 | **Morpheus'a Sor** | Sohbet; bağlam olarak job template / workflow / son analiz seçilebilir, standartlar AI'a otomatik gönderilir |
+| **Düzeltmeler** | UnixAI OS'un sunucu bulguları için üretilen standart uyumlu playbook'lar; onay, AAP'de check / gerçek çalıştırma, iş çıktısı |
 | **Standartlar** | Kural kataloğu (STD / JT / WF); aç/kapat, özel kural ekle |
 | **Token Kullanımı** | Günlük token grafiği ve limit, kullanıcıya / türe göre dağılım, her sorgunun token kullanımı, CSV dışa aktarma |
 | **AI Logları** | GenAI ve AAP'ye giden her istek ve dönen cevap (gizli alanlar maskeli), token kullanımı |
@@ -79,6 +80,17 @@ API yolu otomatik algılanır (AAP 2.5/2.6: `/api/controller/v2`, 2.4/AWX: `/api
 
 AAP API'si playbook dosya içeriğini sunmaz; template analizi job template **tanımı** (envanter, credential, extra_vars, survey,
 verbosity, timeout, execution environment, bildirimler...) üzerinden yapılır. Playbook YAML'ı editöre yapıştırılarak ayrıca analiz edilebilir.
+
+## UnixAI OS düzeltmeleri (bulgu → playbook → AAP)
+
+UnixAI OS bir sunucuda bulgu bulduğunda `POST /api/remediations` ile Morpheus'a gönderir (Bearer `MORPHEUS_API_TOKEN`).
+Morpheus kurumsal standartlara uygun bir playbook üretir (GenAI; yoksa yalnızca salt-okunur tanı komutlarından güvenli bir playbook),
+standart analizinden geçirir, uyum skoru `REMEDIATION_MIN_SCORE` altındaysa ihlalleri modele verip bir kez yeniden üretir.
+**Düzeltmeler** ekranında yönetici playbook'u inceler, onaylar; AAP'deki runner job template'i ile önce **check (dry-run)**,
+sonra **gerçek** olarak o sunucu (`limit`) için çalıştırılır. Kurulum: [`deploy/aap/README.md`](deploy/aap/README.md).
+
+**MCP:** `mcp/morpheus-mcp.js`, UnixAI OS'un `mcp/unixai_mcp.py` sunucusuyla birlikte bir MCP istemcisine eklenince iki sistem
+araç çağrılarıyla konuşur — bkz. [`mcp/README.md`](mcp/README.md).
 
 ## LDAP ile giriş
 
@@ -139,6 +151,7 @@ görünür. Parola ve secret'lar tamamen, token/client-id'ler ilk 4 karakter dı
 2. `npm start` — `.env` doluysa sunucu otomatik **GENAI** moduna geçer.
 3. *Ayarlar → Bağlantıları test et* ile doğrulayın.
 
+Token önce `TMS_TOKEN_PATH`, sonra yanıt header'ı (`TMS_TOKEN_HEADER`, varsayılan `authorization`; `Bearer` / `Bearer:` öneki temizlenir), en son gövdedeki bilinen alanlardan okunur; `TMS_TOKEN_SOURCE=header|body` ile sabitlenebilir.
 Token sunucuda cache'lenir, süresi dolunca veya 401/403 alınınca otomatik yenilenir. Token ve header'lar tarayıcıya hiç gönderilmez.
 Kurum içi sertifika için `NODE_EXTRA_CA_CERTS=/yol/kurum-ca.pem` kullanın.
 

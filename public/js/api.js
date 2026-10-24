@@ -61,6 +61,12 @@ const Api = (() => {
     log: (id) => request(`/logs/${encodeURIComponent(id)}`),
     history: (q = {}) => request(`/history?${new URLSearchParams(Object.entries(q).filter(([, v]) => v))}`),
     historyItem: (id) => request(`/history/${encodeURIComponent(id)}`),
+    remediations: (q = {}) => request(`/remediations?${new URLSearchParams(Object.entries(q).filter(([, v]) => v))}`),
+    remediation: (id) => request(`/remediations/${encodeURIComponent(id)}`),
+    approveRem: (id) => request(`/remediations/${encodeURIComponent(id)}/approve`, { method: "POST", body: {} }),
+    rejectRem: (id, reason) => request(`/remediations/${encodeURIComponent(id)}/reject`, { method: "POST", body: { reason } }),
+    launchRem: (id, mode, allowDisruptive = false) => request(`/remediations/${encodeURIComponent(id)}/launch`, { method: "POST", body: { mode, allowDisruptive } }),
+    remStdout: (id, jobId) => request(`/remediations/${encodeURIComponent(id)}/jobs/${encodeURIComponent(jobId)}/stdout`),
     usage: (q = {}) => request(`/usage?${new URLSearchParams(Object.entries(q).filter(([, v]) => v))}`),
     usageToday: () => request("/usage/today"),
     limits: () => request("/limits"),
@@ -102,6 +108,12 @@ GET  /api/logs/:id          → { ...LogSummary, request: {headers, body}, respo
 
 POST /api/analyze/template  ← { content, rules: string[], customRules?, prompt?, templateId? }   → AnalysisResult
 POST /api/analyze/workflow  ← { workflow: {name, nodes}, workflowId?, rules, customRules?, prompt? } → AnalysisResult
+GET  /api/remediations[?status=&server=]  → { items[], config }   (UnixAI OS bulgularından üretilen düzeltmeler)
+POST /api/remediations      ← { server: { name, target, host, os_release }, finding: { title, priority, evidence, commands[] } } → Remediation
+GET  /api/remediations/:id  → { ...Remediation, playbook, compliance, jobs[], events[] }
+POST /api/remediations/:id/approve | reject    (yalnızca arayüz / yönetici)
+POST /api/remediations/:id/launch  ← { mode: "check"|"run", allowDisruptive? }  → AAP runner job
+     Servisler arası: Authorization: Bearer <MORPHEUS_API_TOKEN>
 POST /api/chat              ← { messages: {role, content}[], context?, rules?, customRules? }  → { reply: "<markdown>" }
      context = AnalysisResult | { kind: "template", name, content } | { kind: "workflow", name, workflow }
 

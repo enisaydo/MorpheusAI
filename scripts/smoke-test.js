@@ -101,8 +101,8 @@ function fakeGateway() {
         seen.tmsCalls++;
         seen.tmsBody = body;
         if (req.headers.channel !== "B2B" || !req.headers["x-forwarded-for"]) return send(400, { error: "eksik header" });
-        // Gerçek gateway gibi: gövde boş, token ve süre response header'ında
-        res.writeHead(200, { authorization: "Bearer tok-123", expires_in: "86389", "content-length": 0 });
+        // Gerçek gateway gibi: gövde boş, token ve süre response header'ında ("Bearer: <token>")
+        res.writeHead(200, { authorization: "Bearer: tok-123", expires_in: "86389", "content-length": 0 });
         return res.end();
       }
       if (req.url === "/chat/completions") {
@@ -113,6 +113,15 @@ function fakeGateway() {
         const userMsg = seen.lastChatBody.messages.at(-1).content;
         if (userMsg.includes("BOS_CEVAP")) // akıl yürüten modelin token bütçesini bitirmesi
           return send(200, { choices: [{ message: { role: "assistant", content: "" }, finish_reason: "length" }] });
+        if (userMsg.includes("Bu bulguyu gidermek için")) {
+          seen.remediationPrompts = (seen.remediationPrompts || 0) + 1;
+          seen.lastRemediationPrompt = userMsg;
+          const playbook = '---\n- name: "UnixAI | httpd onarımı"\n  hosts: "{{ target_host }}"\n  become: true\n  gather_facts: true\n  tasks:\n' +
+            '    - name: "httpd yapılandırmasını doğrula"\n      ansible.builtin.command: apachectl configtest\n      changed_when: false\n      check_mode: false\n      tags: [unixai_remediation]\n' +
+            '    - name: "httpd servisini başlat"\n      ansible.builtin.systemd:\n        name: httpd\n        state: started\n      when: unixai_allow_disruptive | default(false) | bool\n      tags: [unixai_remediation]\n';
+          return send(200, { choices: [{ message: { role: "assistant", content: JSON.stringify({ title: "httpd onarımı", summary: "configtest + start", risk: "medium", disruptive: true, playbook }) }, finish_reason: "stop" }],
+            usage: { prompt_tokens: 50, completion_tokens: 50, total_tokens: 100 } });
+        }
         const content = userMsg.includes("şemaya uyan geçerli JSON")
           ? "```json\n" + JSON.stringify({
               score: 42, status: "non_compliant", summary: "AI özeti",
@@ -254,6 +263,17 @@ async function genaiSuite() {
     assert(badLim.status === 400, "geçersiz limit değeri reddedildi");
     const today = await (await fetch(`${base}/api/usage/today`, { headers: { "X-Morpheus-User": "Mehmet" } })).json();
     assert(today.user === "Mehmet" && today.userTotal === 120, "bugünkü kullanıcı kullanımı döndü");
+
+    // UnixAI bulgusundan GenAI ile düzeltme playbook'u (uyum skoru düşük → ihlaller verilip 1 kez yeniden üretim)
+    await postJson(base, "/api/limits", { dailyLimit: 0, perUserDailyLimit: 0 });
+    const rem = await postJson(base, "/api/remediations", {
+      server: { name: "rhel-web01", os_release: "Red Hat Enterprise Linux release 9.3" },
+      finding: { title: "httpd failed", priority: "P1", evidence: "httpd.service loaded failed failed", commands: ["systemctl status httpd"] },
+      source: "unixai-os",
+    });
+    assert(rem.engine === "genai" && rem.attempts === 2 && seen.remediationPrompts === 2, "GenAI düzeltme playbook'u üretti, uyum eşiği altında olduğu için 1 kez yeniden denendi");
+    assert(seen.lastRemediationPrompt.includes("STD-005") && seen.lastRemediationPrompt.includes("Önceki taslağın standart ihlalleri"), "standartlar ve önceki ihlaller modele verildi");
+    assert(rem.runnable && rem.tasksYaml.startsWith('- name: "httpd yapılandırmasını doğrula"') && rem.disruptive, "runner için task listesi çıkarıldı, kesinti riski işaretlendi");
   } finally {
     srv.kill();
     gw.close();
@@ -586,12 +606,134 @@ async function ldapSuite() {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/*  Düzeltme akışı: UnixAI bulgusu → playbook → onay → AAP runner      */
+/* ------------------------------------------------------------------ */
+function fakeAapRunner() {
+  const seen = { launches: [], jobs: {} };
+  const srv = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      const send = (code, obj) => { res.writeHead(code, { "content-type": "application/json" }); res.end(JSON.stringify(obj)); };
+      const u = new URL(req.url, "http://x");
+      if (req.headers.authorization !== "Bearer aap-exec") return send(401, {});
+      if (u.pathname === "/api/v2/ping/") return send(200, { version: "4.5.0" });
+      let m;
+      if (req.method === "POST" && (m = u.pathname.match(/^\/api\/v2\/job_templates\/(\d+)\/launch\/$/))) {
+        const b = JSON.parse(body);
+        const id = 1000 + seen.launches.length;
+        seen.launches.push({ template: m[1], ...b });
+        seen.jobs[id] = { id, status: "pending", job_type: b.job_type };
+        return send(201, { job: id, id, status: "pending", ignored_fields: {} });
+      }
+      if ((m = u.pathname.match(/^\/api\/v2\/jobs\/(\d+)\/stdout\/$/))) { res.writeHead(200, { "content-type": "text/plain" }); return res.end(`PLAY [UnixAI] ok=3 job=${m[1]}`); }
+      if ((m = u.pathname.match(/^\/api\/v2\/jobs\/(\d+)\/$/))) return send(200, seen.jobs[m[1]] || {});
+      send(404, {});
+    });
+  });
+  return { srv, seen };
+}
+
+async function remediationSuite() {
+  console.log("\n[Düzeltme akışı — UnixAI OS bulgusu → playbook → AAP runner]");
+  const { srv: aapSrv, seen } = fakeAapRunner();
+  await new Promise((r) => aapSrv.listen(3983, "127.0.0.1", r));
+  const base = "http://127.0.0.1:3982";
+  const TOKEN = "unixai-bridge-token-1234567890";
+  const srv = startServer(3982, {
+    MORPHEUS_MODE: "demo", AAP_URL: "http://127.0.0.1:3983", AAP_TOKEN: "aap-exec", AAP_API_PREFIX: "/api/v2",
+    REMEDIATION_JOB_TEMPLATE_ID: "42", MORPHEUS_API_TOKEN: TOKEN,
+  });
+  const call = (p, { method = "GET", body, token = TOKEN } = {}) =>
+    fetch(base + "/api" + p, { method, headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: body ? JSON.stringify(body) : undefined })
+      .then(async (r) => ({ status: r.status, data: await r.text().then((t) => { try { return JSON.parse(t); } catch { return t; } }) }));
+  const mcp = spawn(process.execPath, [path.join(__dirname, "..", "mcp", "morpheus-mcp.js")], {
+    env: { ...process.env, MORPHEUS_URL: base, MORPHEUS_API_TOKEN: TOKEN }, stdio: ["pipe", "pipe", "ignore"],
+  });
+  let mcpBuf = "";
+  const pending = new Map();
+  mcp.stdout.on("data", (c) => {
+    mcpBuf += c;
+    let i;
+    while ((i = mcpBuf.indexOf("\n")) >= 0) {
+      const msg = JSON.parse(mcpBuf.slice(0, i));
+      mcpBuf = mcpBuf.slice(i + 1);
+      pending.get(msg.id)?.(msg);
+    }
+  });
+  let rpcId = 0;
+  const rpc = (method, params) => new Promise((resolve) => {
+    const id = ++rpcId;
+    pending.set(id, resolve);
+    mcp.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+  });
+
+  try {
+    await waitFor(base);
+    const finding = {
+      server: { name: "rhel-db01", target: "rhel-db01.corp.local", host: "10.20.30.11", os_release: "Red Hat Enterprise Linux release 8.9 (Ootpa)" },
+      finding: { title: "/u01 alanını genişlet", priority: "P1", severity: "critical", evidence: "/u01 %96",
+        commands: ["df -h /u01", "lvextend -r -L +200G /dev/vg_data/u01"] },
+      source: "unixai-os",
+    };
+    assert((await call("/remediations", { method: "POST", body: finding, token: "yanlis-token-000000000000" })).status === 401, "geçersiz API token reddedildi");
+    const created = await call("/remediations", { method: "POST", body: finding });
+    const r = created.data;
+    assert(created.status === 201 && r.status === "generated" && r.runnable, "UnixAI bulgusundan düzeltme kaydı oluşturuldu");
+    assert(r.playbook.includes('hosts: "{{ target_host }}"') && r.playbook.includes("ansible.builtin.shell") && !/^\s+ansible\.builtin\.shell: "lvextend/m.test(r.playbook),
+      "GenAI yokken yalnızca salt-okunur tanı komutları çalıştırılıyor (lvextend bilgi olarak)");
+    assert(typeof r.compliance?.score === "number", `standart analizi yapıldı (uyum ${r.compliance.score})`);
+    assert((await call(`/remediations/${r.id}/launch`, { method: "POST", body: { mode: "run" } })).status === 409, "onaysız gerçek çalıştırma engellendi");
+    assert((await call(`/remediations/${r.id}/approve`, { method: "POST", body: {} })).status === 403, "API token ile onay verilemez (yalnızca arayüz)");
+
+    const chk = await call(`/remediations/${r.id}/launch`, { method: "POST", body: { mode: "check" } });
+    const l = seen.launches[0];
+    assert(chk.status === 202 && chk.data.status === "check_running" && l.template === "42" && l.job_type === "check" && l.limit === "rhel-db01.corp.local",
+      "check (dry-run) AAP runner'ında doğru limit ile başlatıldı");
+    const tasks = Buffer.from(l.extra_vars.remediation_tasks_b64, "base64").toString("utf8");
+    assert(l.extra_vars.target_host === "rhel-db01.corp.local" && /^- name: "Tanı \| df -h \/u01"/m.test(tasks) && l.extra_vars.unixai_allow_disruptive === false,
+      "runner'a task listesi base64 olarak gönderildi");
+
+    const ui = await call(`/remediations/${r.id}/approve`, { method: "POST", body: {}, token: null });
+    assert(ui.status === 200 && ui.data.approval, "arayüzden onaylandı");
+    assert((await call(`/remediations/${r.id}/launch`, { method: "POST", body: { mode: "run" } })).status === 409, "check bitmeden gerçek çalıştırma engellendi");
+    seen.jobs[1000].status = "successful";
+    await new Promise((res) => setTimeout(res, 3100)); // durum yenileme aralığı
+    const after = await call(`/remediations/${r.id}`);
+    assert(after.data.status === "approved" && after.data.jobs[0].status === "successful", "AAP iş durumu güncellendi (check başarılı)");
+    const out = await call(`/remediations/${r.id}/jobs/1000/stdout`);
+    assert(String(out.data).includes("job=1000"), "AAP iş çıktısı okundu");
+    const run = await call(`/remediations/${r.id}/launch`, { method: "POST", body: { mode: "run" } });
+    assert(run.status === 202 && seen.launches[1].job_type === "run" && run.data.status === "running", "onay + başarılı check sonrası sunucuya uygulandı");
+
+    console.log("  [MCP]");
+    const init = await rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } });
+    assert(init.result.serverInfo.name === "morpheusai" && init.result.capabilities.tools, "MCP initialize");
+    mcp.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
+    const tl = await rpc("tools/list", {});
+    assert(tl.result.tools.some((t) => t.name === "morpheus_create_remediation") && tl.result.tools.every((t) => t.inputSchema), "MCP tools/list");
+    const c2 = await rpc("tools/call", { name: "morpheus_create_remediation", arguments: { server: { name: "rhel-web01" }, finding: { title: "httpd failed", commands: ["systemctl status httpd"] } } });
+    const created2 = JSON.parse(c2.result.content[0].text);
+    assert(!c2.result.isError && created2.status === "generated" && created2.playbook, "MCP üzerinden düzeltme oluşturuldu");
+    const ls = await rpc("tools/call", { name: "morpheus_list_remediations", arguments: { server: "rhel-web01" } });
+    assert(JSON.parse(ls.result.content[0].text).items.length === 1, "MCP listeleme (sunucu filtresi)");
+    const bad = await rpc("tools/call", { name: "morpheus_launch_remediation", arguments: { id: created2.id, mode: "run" } });
+    assert(bad.result.isError && /onay/.test(bad.result.content[0].text), "MCP onaysız gerçek çalıştırmayı hata olarak döndürdü");
+  } finally {
+    mcp.kill();
+    srv.kill();
+    aapSrv.close();
+  }
+}
+
 (async () => {
   try {
     await demoSuite();
     await genaiSuite();
     await aapSuite();
     await ldapSuite();
+    await remediationSuite();
     console.log("\nSmoke test başarılı.");
   } catch (e) {
     console.error(`\n✗ ${e.message}`);

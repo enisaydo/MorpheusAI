@@ -35,6 +35,7 @@
       <a href="#/workflow" data-route="workflow">Workflow Analizi</a>
       <a href="#/oracle" data-route="oracle">Morpheus'a Sor</a>
       <a href="#/history" data-route="history">Analiz Geçmişi</a>
+      <a href="#/remediations" data-route="remediations">Düzeltmeler <span class="nav-count" id="remCount"></span></a>
       <div class="nav-group">Yönetim</div>
       <a href="#/standards" data-route="standards">Standartlar</a>
       <a href="#/usage" data-route="usage">Token Kullanımı</a>
@@ -153,6 +154,30 @@
               <button class="btn primary" type="submit" id="chatSend">Gönder</button>
             </div>
           </form>
+        </div>
+      </section>
+
+      <!-- ---------- REMEDIATIONS ---------- -->
+      <section class="view" data-view="remediations">
+        <div class="page-head">
+          <div><h1>Düzeltmeler</h1><p>UnixAI OS'un sunucularda bulduğu sorunlar için standartlara uygun üretilen playbook'lar: inceleyin, onaylayın, AAP'de önce check modda sonra gerçek modda çalıştırın.</p></div>
+          <button class="btn secondary" id="remRefresh">Yenile</button>
+        </div>
+        <div class="card">
+          <div class="toolbar">
+            <div class="seg" id="remStatus">
+              <button data-st="" class="on">Tümü</button>
+              <button data-st="generated">Onay bekliyor</button>
+              <button data-st="check_ok">Check başarılı</button>
+              <button data-st="approved">Onaylı</button>
+              <button data-st="applied">Uygulandı</button>
+              <button data-st="failed">Hatalı</button>
+            </div>
+            <input id="remServer" class="input sm" placeholder="Sunucu adı" />
+            <span class="toolbar-spacer"></span>
+            <span class="muted sm" id="remConfig"></span>
+          </div>
+          <div class="table-wrap"><table class="table" id="remTable"></table></div>
         </div>
       </section>
 

@@ -1,0 +1,37 @@
+---
+# UnixAI OS → MorpheusAI düzeltme runner'ı
+# AAP'de tek bir job template bu playbook'u çalıştırır; MorpheusAI her düzeltmeyi şu extra_vars ile başlatır:
+#   target_host              : hedef sunucunun envanterdeki adı (job "limit" değeri ile aynı)
+#   remediation_tasks_b64    : MorpheusAI'nin ürettiği ve standart analizinden geçen task listesi (base64)
+#   remediation_id           : Morpheus kayıt numarası (izlenebilirlik)
+#   unixai_allow_disruptive  : kesinti riskli task'lara izin (yalnızca onaylı gerçek çalıştırmada true)
+# Job type "check" ile gelirse Ansible check modunda (dry-run) çalışır.
+- name: "UnixAI | Düzeltme runner"
+  hosts: "{{ target_host }}"
+  become: true
+  gather_facts: true
+  tasks:
+    - name: "Runner | Girdi doğrulama"
+      ansible.builtin.assert:
+        that:
+          - target_host is defined and target_host | length > 0
+          - remediation_tasks_b64 is defined and remediation_tasks_b64 | length > 0
+          - remediation_id is defined and remediation_id is match('^[A-Za-z0-9_-]+$')
+        fail_msg: "target_host, remediation_tasks_b64 ve remediation_id extra_vars olarak verilmeli"
+      tags: [always]
+
+    - name: "Runner | Görev dosyasını yaz ({{ remediation_id }})"
+      ansible.builtin.copy:
+        content: "{{ remediation_tasks_b64 | b64decode }}"
+        dest: "/tmp/unixai_{{ remediation_id }}.yml"
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      check_mode: false
+      changed_when: false
+      tags: [always]
+
+    - name: "Runner | Düzeltme görevlerini çalıştır"
+      ansible.builtin.include_tasks: "/tmp/unixai_{{ remediation_id }}.yml"
+      tags: [always]

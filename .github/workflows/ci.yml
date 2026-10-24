@@ -20,7 +20,7 @@ jobs:
       - name: Sözdizimi kontrolü
         run: |
           node --check server.js
-          for f in public/js/*.js scripts/*.js; do node --check "$f"; done
+          for f in lib/*.js mcp/*.js public/js/*.js scripts/*.js; do node --check "$f"; done
       - name: Smoke test
         run: npm test
 

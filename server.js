@@ -27,6 +27,20 @@ const usage = require("./lib/usage");
 const history = require("./lib/history");
 
 const auth = require("./lib/auth");
+const remediation = require("./lib/remediation");
+const crypto = require("crypto");
+
+/* Servisler arası erişim (UnixAI OS köprüsü, MCP sunucusu): Authorization: Bearer <MORPHEUS_API_TOKEN>
+ * Virgülle birden fazla token verilebilir. API kullanıcısı düzeltme oluşturup check modda çalıştırabilir;
+ * gerçek çalıştırma onayı yalnızca arayüzden verilir (REMEDIATION_ALLOW_API_APPROVE=true değilse). */
+const API_TOKENS = (process.env.MORPHEUS_API_TOKEN || "").split(",").map((t) => t.trim()).filter((t) => t.length >= 16);
+function apiSession(req) {
+  const m = String(req.headers.authorization || "").match(/^Bearer\s+(.+)$/i);
+  if (!m || !API_TOKENS.length) return null;
+  const given = crypto.createHash("sha256").update(m[1].trim()).digest();
+  const ok = API_TOKENS.some((t) => crypto.timingSafeEqual(given, crypto.createHash("sha256").update(t).digest()));
+  return ok ? { username: String(req.headers["x-morpheus-client"] || "api").slice(0, 40), displayName: "API", isAdmin: false, isApi: true } : null;
+}
 
 /* Kullanıcı kimliği:
  *   LDAP açıksa → oturumdaki kullanıcı (doğrulanmış)
@@ -200,7 +214,10 @@ async function handleApi(req, res, url) {
   const route = `${req.method} ${url.pathname}`;
 
   /* ---- Kimlik doğrulama (LDAP) ---- */
-  const session = auth.isEnabled() ? auth.readSession(req) : null;
+  const api = apiSession(req);
+  if (req.headers.authorization && /^Bearer\s/i.test(req.headers.authorization) && API_TOKENS.length && !api && url.pathname.startsWith("/api/remediations"))
+    return sendJson(res, 401, { error: "Geçersiz API token" });
+  const session = api || (auth.isEnabled() ? auth.readSession(req) : null);
   switch (route) {
     case "POST /api/auth/login": {
       if (!auth.isEnabled()) return sendJson(res, 400, { error: "LDAP girişi etkin değil" });
@@ -230,6 +247,7 @@ async function handleApi(req, res, url) {
   if (MODE === "proxy" && url.pathname !== "/api/health") return proxy(req, res, body);
   const ai = MODE === "genai";
   const who = whoIs(req, session);
+  if (api) who.isApi = true;
 
   switch (route) {
     case "GET /api/health":
@@ -261,6 +279,10 @@ async function handleApi(req, res, url) {
     case "POST /api/limits":
       try { return sendJson(res, 200, usage.saveLimits(json, who.user)); }
       catch (e) { return sendJson(res, 400, { error: e.message }); }
+    case "GET /api/remediations":
+      return sendJson(res, 200, { items: remediation.list({ status: url.searchParams.get("status") || undefined, server: url.searchParams.get("server") || undefined }), config: remediation.config() });
+    case "POST /api/remediations":
+      return sendJson(res, 201, await remediation.create(json, STANDARDS, who, { ai: MODE === "genai" }));
     case "GET /api/logs":
       return sendJson(res, 200, logger.list({ limit: Number(url.searchParams.get("limit") || 100), service: url.searchParams.get("service") || undefined }));
     case "POST /api/analyze/template":
@@ -289,6 +311,25 @@ async function handleApi(req, res, url) {
   if (req.method === "GET" && (m = url.pathname.match(/^\/api\/history\/(.+)$/))) {
     const h = history.get(decodeURIComponent(m[1]));
     return h ? sendJson(res, 200, h) : sendJson(res, 404, { error: "Analiz kaydı bulunamadı" });
+  }
+  if ((m = url.pathname.match(/^\/api\/remediations\/([\w-]+)(?:\/(approve|reject|launch|jobs\/(\d+)\/stdout))?$/))) {
+    const id = m[1], sub = m[2];
+    if (req.method === "GET" && !sub) {
+      const r = await remediation.get(id);
+      return r ? sendJson(res, 200, r) : sendJson(res, 404, { error: "Düzeltme kaydı bulunamadı" });
+    }
+    if (req.method === "GET" && m[3]) {
+      res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+      return res.end(await remediation.stdout(id, m[3]));
+    }
+    if (req.method === "POST" && (sub === "approve" || sub === "reject")) {
+      if (who.isApi && !/^(1|true|yes|on)$/i.test(process.env.REMEDIATION_ALLOW_API_APPROVE || ""))
+        return sendJson(res, 403, { error: "Onay/ret yalnızca Morpheus arayüzünden verilebilir (REMEDIATION_ALLOW_API_APPROVE kapalı)" });
+      if (session && !session.isAdmin && !who.isApi) return sendJson(res, 403, { error: "Onay için yönetici yetkisi gerekiyor" });
+      return sendJson(res, 200, sub === "approve" ? remediation.approve(id, who) : remediation.reject(id, who, json.reason));
+    }
+    if (req.method === "POST" && sub === "launch")
+      return sendJson(res, 202, await remediation.launch(id, { mode: json.mode === "run" ? "run" : "check", allowDisruptive: json.allowDisruptive === true }, who));
   }
   if (req.method === "GET" && (m = url.pathname.match(/^\/api\/logs\/(.+)$/))) {
     const e = logger.get(decodeURIComponent(m[1]));

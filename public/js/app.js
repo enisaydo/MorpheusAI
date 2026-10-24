@@ -31,7 +31,7 @@ const activeRules = (scope) => allRules().filter((r) => (!scope || r.scope === s
 /* ================================================================== */
 /*  Router                                                             */
 /* ================================================================== */
-const ROUTES = ["dashboard", "template", "workflow", "oracle", "history", "standards", "usage", "logs", "settings"];
+const ROUTES = ["dashboard", "template", "workflow", "oracle", "history", "remediations", "standards", "usage", "logs", "settings"];
 
 function route() {
   const [name, arg] = location.hash.replace(/^#\/?/, "").split("/");
@@ -45,6 +45,7 @@ function route() {
   if (r === "logs") loadLogs();
   if (r === "usage") loadUsage();
   if (r === "history") loadHistory();
+  if (r === "remediations") { loadRemediations(); if (arg) showRemediation(decodeURIComponent(arg)); }
   if (r === "settings") loadLimits();
   setLogAuto(r === "logs" && $("#logAuto").checked);
   window.scrollTo(0, 0);
@@ -1167,6 +1168,125 @@ function previewRequest() {
 /* ================================================================== */
 /*  Olaylar & başlatma                                                 */
 /* ================================================================== */
+/* ================================================================== */
+/*  Düzeltmeler (UnixAI OS bulguları → playbook → AAP)                  */
+/* ================================================================== */
+const REM_STATUS = {
+  generated: ["Onay bekliyor", "gold"], approved: ["Onaylı", "blue"], check_running: ["Check çalışıyor", "blue"],
+  check_ok: ["Check başarılı", "green"], check_failed: ["Check hatalı", "red"], running: ["Uygulanıyor", "blue"],
+  applied: ["Uygulandı", "green"], failed: ["Hatalı", "red"], rejected: ["Reddedildi", ""],
+};
+const remTag = (s) => { const [l, c] = REM_STATUS[s] || [s, ""]; return `<span class="label ${c}">${esc(l)}</span>`; };
+const JOB_STATUS = { successful: "status-ok", failed: "status-err", error: "status-err", canceled: "status-err" };
+State.remFilter = "";
+State.remTimer = null;
+
+async function loadRemediations() {
+  try {
+    const r = await Api.remediations({ status: State.remFilter, server: $("#remServer").value.trim() });
+    const c = (State.remCfg = r.config);
+    $("#remConfig").textContent = `Min. uyum ${c.minScore} · ${c.autoApprove ? "otomatik onay AÇIK" : "onay gerekli"} · ${c.requireCheck ? "önce check zorunlu" : "check opsiyonel"} · ${c.aap ? `runner #${c.runnerTemplate || "tanımsız"}` : "AAP bağlı değil"}`;
+    const pending = r.items.filter((x) => x.status === "generated").length;
+    $("#remCount").textContent = pending ? String(pending) : "";
+    $("#remTable").innerHTML = `<tr><th>Zaman</th><th>Sunucu</th><th>Bulgu</th><th>Uyum</th><th>Durum</th><th>Son AAP işi</th><th>Kaynak</th></tr>` +
+      (r.items.map((x) => `<tr class="clickable" data-rem="${esc(x.id)}">
+        <td class="mono">${esc(fmtTime(x.createdAt))}</td>
+        <td><div class="t-name">${esc(x.server.name)}</div><div class="t-sub">${esc(x.server.target)}${x.server.os_release ? ` · ${esc(x.server.os_release)}` : ""}</div></td>
+        <td>${x.finding.priority ? `<span class="label ${x.finding.priority === "P1" ? "red" : "gold"}">${esc(x.finding.priority)}</span> ` : ""}${esc(x.finding.title)}</td>
+        <td>${x.compliance ? scoreBar(x.compliance.score) : "—"}</td>
+        <td>${remTag(x.status)}${x.runnable ? "" : ` <span class="label red" title="${esc(x.runnerError || "")}">çalıştırılamaz</span>`}</td>
+        <td>${x.lastJob ? `<span class="${JOB_STATUS[x.lastJob.status] || ""}">#${esc(x.lastJob.id)} ${esc(x.lastJob.mode)} · ${esc(x.lastJob.status)}</span>` : "—"}</td>
+        <td class="t-sub">${esc(x.source)}${x.requestedBy ? ` · ${esc(x.requestedBy)}` : ""}</td></tr>`).join("") ||
+        `<tr><td colspan="7" class="muted">Henüz düzeltme yok. UnixAI OS'ta bir sunucu bulgusunda <b>MorpheusAI'ye gönder</b>'e basın veya MCP üzerinden gönderin.</td></tr>`);
+  } catch (e) { $("#remTable").innerHTML = `<tr><td>${errorView(e)}</td></tr>`; }
+}
+
+async function showRemediation(id) {
+  clearTimeout(State.remTimer);
+  let r;
+  try { r = await Api.remediation(id); } catch (e) { return toast(e.message, true); }
+  const c = r.compliance || {}, f = r.finding;
+  const active = r.jobs.some((j) => ["new", "pending", "waiting", "running"].includes(j.status));
+  const checkOk = r.jobs.some((j) => j.mode === "check" && j.status === "successful");
+  const cfg = State.remCfg || {};
+  modal(`Düzeltme · ${r.server.name}`, `
+    <div class="rem-head">
+      ${c.score != null ? gauge(c.score, { size: 96, label: "uyum" }) : ""}
+      <div>
+        <div>${remTag(r.status)} <span class="muted sm">${esc(r.engine === "genai" ? "GenAI" : "Güvenli tanı (GenAI yok)")} · ${r.attempts} deneme · risk: ${esc(r.risk || "-")}${r.disruptive ? " · kesinti riskli adım içerir" : ""}</span></div>
+        <h2 class="rem-title">${esc(r.title || f.title)}</h2>
+        <p class="muted">${esc(r.summary || "")}</p>
+      </div>
+    </div>
+    ${r.runnable ? "" : `<div class="alert danger">Bu playbook runner ile çalıştırılamaz: ${esc(r.runnerError)}</div>`}
+    <div class="tabs">
+      <button class="on" data-rtab="pb">Playbook</button>
+      <button data-rtab="finding">Bulgu (UnixAI)</button>
+      <button data-rtab="comp">Standart uyumu (${(c.findings || []).length})</button>
+      <button data-rtab="jobs">AAP işleri (${r.jobs.length})</button>
+      <button data-rtab="events">Geçmiş</button>
+    </div>
+    <div data-rpane="pb"><div class="fix"><pre>${esc(r.playbook)}</pre><button class="btn link sm copy" id="remCopy">Kopyala</button></div></div>
+    <div data-rpane="finding" class="hidden"><dl class="kv">
+      <dt>Sunucu</dt><dd>${esc(r.server.name)} · AAP hedefi <code>${esc(r.server.target)}</code>${r.server.host ? ` · ${esc(r.server.host)}` : ""}</dd>
+      <dt>OS</dt><dd>${esc(r.server.os_release || "—")} ${r.server.kernel ? `· ${esc(r.server.kernel)}` : ""}</dd>
+      <dt>Bulgu</dt><dd>${esc(f.priority || "")} ${esc(f.title)}</dd>
+      ${f.evidence ? `<dt>Kanıt</dt><dd><pre class="code-block">${esc(f.evidence)}</pre></dd>` : ""}
+      ${f.probable_cause ? `<dt>Olası neden</dt><dd>${esc(f.probable_cause)}</dd>` : ""}
+      ${f.commands?.length ? `<dt>UnixAI komutları</dt><dd><pre class="code-block">${esc(f.commands.join("\n"))}</pre></dd>` : ""}
+      ${f.risk ? `<dt>Risk</dt><dd>${esc(f.risk)}</dd>` : ""}
+      <dt>Gönderen</dt><dd>${esc(r.source)}${r.requestedBy ? ` · ${esc(r.requestedBy)}` : ""}</dd>
+    </dl></div>
+    <div data-rpane="comp" class="hidden">${(c.findings || []).map((x, i) => findingHtml(x, i, "template")).join("") || `<p class="muted">Standart ihlali bulunmadı.</p>`}</div>
+    <div data-rpane="jobs" class="hidden">${r.jobs.map((j) => `<div class="finding"><div class="finding-top">
+        <b>#${esc(j.id)}</b> <span class="label">${j.mode === "check" ? "check (dry-run)" : "gerçek"}</span> <span class="${JOB_STATUS[j.status] || ""}">${esc(j.status)}</span>
+        <span class="finding-meta"><span>${esc(fmtTime(j.launchedAt))}</span>${j.launchedBy ? `<span>${esc(j.launchedBy)}</span>` : ""}
+        <span class="link" data-stdout="${esc(j.id)}">çıktı</span>${j.url ? `<a href="${esc(j.url)}" target="_blank" rel="noopener">AAP</a>` : ""}</span></div></div>`).join("") || `<p class="muted">Henüz çalıştırılmadı.</p>`}
+      <pre class="code-block hidden" id="remStdout"></pre></div>
+    <div data-rpane="events" class="hidden">${r.events.slice().reverse().map((e) => `<div class="ev"><span class="mono muted">${esc(fmtTime(e.at))}</span> <b>${esc(e.by)}</b> — ${esc(e.text)}</div>`).join("")}</div>
+    <div class="result-actions">
+      ${r.rejected ? `<span class="muted">Reddedildi: ${esc(r.rejected.by)}${r.rejected.reason ? ` — ${esc(r.rejected.reason)}` : ""}</span>` : `
+        <button class="btn secondary" id="remCheck" ${!r.runnable || active ? "disabled" : ""}>Check modda çalıştır (dry-run)</button>
+        ${r.approval ? `<span class="label blue">Onaylayan: ${esc(r.approval.by)}</span>` : `<button class="btn secondary" id="remApprove" ${!r.runnable ? "disabled" : ""}>Onayla</button>`}
+        <button class="btn primary" id="remRun" ${!r.runnable || active || !r.approval || (cfg.requireCheck !== false && !checkOk) ? "disabled" : ""} title="${!r.approval ? "Önce onaylayın" : cfg.requireCheck !== false && !checkOk ? "Önce başarılı bir check çalıştırması gerekli" : ""}">Sunucuya uygula</button>
+        <label class="muted sm">${r.disruptive ? `<input type="checkbox" id="remDisruptive" /> Kesinti riskli adımlara izin ver` : ""}</label>
+        <span class="toolbar-spacer"></span>
+        <button class="btn link" id="remReject">Reddet</button>`}
+    </div>`, { wide: true });
+  animateGauges($("#modalBody"));
+  const body = $("#modalBody");
+  body.onclick = async (ev) => {
+    const t = ev.target.closest("[data-rtab]");
+    if (t) {
+      $$("[data-rtab]").forEach((b) => b.classList.toggle("on", b === t));
+      $$("[data-rpane]").forEach((p) => p.classList.toggle("hidden", p.dataset.rpane !== t.dataset.rtab));
+    }
+    const so = ev.target.closest("[data-stdout]");
+    if (so) {
+      const pre = $("#remStdout");
+      pre.classList.remove("hidden");
+      pre.textContent = "Yükleniyor…";
+      try { const d = await Api.remStdout(r.id, so.dataset.stdout); pre.textContent = d.raw ?? JSON.stringify(d); }
+      catch (e) { pre.textContent = e.message; }
+    }
+  };
+  const act = (sel, fn, msg) => {
+    const b = $(sel);
+    if (!b) return;
+    b.onclick = async () => {
+      b.disabled = true;
+      try { await fn(); toast(msg); showRemediation(r.id); loadRemediations(); }
+      catch (e) { toast(e.message, true); b.disabled = false; }
+    };
+  };
+  $("#remCopy").onclick = () => copyText(r.playbook);
+  act("#remCheck", () => Api.launchRem(r.id, "check"), "Check (dry-run) çalıştırması AAP'de başlatıldı");
+  act("#remApprove", () => Api.approveRem(r.id), "Onaylandı");
+  act("#remRun", () => Api.launchRem(r.id, "run", Boolean($("#remDisruptive")?.checked)), "Playbook sunucuya uygulanıyor (AAP)");
+  act("#remReject", () => Api.rejectRem(r.id, prompt("Ret nedeni (opsiyonel):") || ""), "Reddedildi");
+  if (active) State.remTimer = setTimeout(() => !$("#modal").classList.contains("hidden") && showRemediation(r.id), 5000);
+}
+
 function bindEvents() {
   addEventListener("hashchange", route);
   $("#menuBtn").onclick = () => $("#sidebar").classList.toggle("open");
@@ -1272,6 +1392,18 @@ function bindEvents() {
     loadLogs();
   };
   $("#logRefresh").onclick = loadLogs;
+  // düzeltmeler
+  $("#remRefresh").onclick = loadRemediations;
+  $("#remStatus").onclick = (e) => {
+    const b = e.target.closest("[data-st]");
+    if (!b) return;
+    State.remFilter = b.dataset.st;
+    $$("#remStatus button").forEach((x) => x.classList.toggle("on", x === b));
+    loadRemediations();
+  };
+  let remT;
+  $("#remServer").oninput = () => { clearTimeout(remT); remT = setTimeout(loadRemediations, 300); };
+  $("#remTable").onclick = (e) => { const tr = e.target.closest("[data-rem]"); if (tr) showRemediation(tr.dataset.rem); };
   $("#logAuto").onchange = (e) => setLogAuto(e.target.checked);
 
   // analiz geçmişi

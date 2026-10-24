@@ -355,3 +355,9 @@ textarea.input { resize: vertical; }
 .sev-counts { display: flex; flex-wrap: wrap; gap: 4px 8px; min-width: 150px; }
 .sev-count { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .sev-count b { font-weight: 500; font-variant-numeric: tabular-nums; }
+
+/* ---------------- düzeltmeler ---------------- */
+.nav-count:not(:empty) { float: right; min-width: 20px; padding: 0 6px; border-radius: 10px; background: var(--danger); color: #fff; font-size: 11px; text-align: center; line-height: 18px; }
+.rem-head { display: flex; gap: 18px; align-items: center; margin-bottom: 12px; }
+.rem-title { margin: 4px 0; font: 500 18px var(--display); }
+.ev { padding: 6px 0; border-bottom: 1px solid var(--border-soft); font-size: 13px; }
