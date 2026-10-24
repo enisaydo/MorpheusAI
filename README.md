@@ -66,7 +66,8 @@ podman run -d --name morpheus-ai --user root -p 3000:3000 --env-file .env ghcr.i
 | **Template Analizi** | AAP job template tanımı veya playbook YAML'ı; kural seçimi, ek talimat, bulgular + eksikler + düzeltmeler |
 | **Workflow Analizi** | AAP workflow akış diyagramı (success/failure/always), akış standart analizi |
 | **Analiz Geçmişi** | Tüm analizler: zaman, kullanıcı, hedef, skor, ihlal edilen kurallar; en sık ihlal edilen kurallar, hedef bazında skor değişimi, CSV |
-| **Morpheus'a Sor** | Sohbet; bağlam olarak job template / workflow / son analiz seçilebilir, standartlar AI'a otomatik gönderilir |
+| **Ajan & MCP** | Barındırılan /mcp, erişim token'ları, izinli alanlar, bağlı MCP sunucuları, ajan ayarları ve konuşmaları |
+| **Morpheus Ajanı** | Sohbet; bağlam olarak job template / workflow / son analiz seçilebilir, standartlar AI'a otomatik gönderilir |
 | **Düzeltmeler** | UnixAI OS'un sunucu bulguları için üretilen standart uyumlu playbook'lar; onay, AAP'de check / gerçek çalıştırma, iş çıktısı |
 | **Standartlar** | Kural kataloğu (STD / JT / WF); aç/kapat, özel kural ekle |
 | **Token Kullanımı** | Günlük token grafiği ve limit, kullanıcıya / türe göre dağılım, her sorgunun token kullanımı, CSV dışa aktarma |
@@ -91,6 +92,12 @@ sonra **gerçek** olarak o sunucu (`limit`) için çalıştırılır. Kurulum: [
 
 **MCP:** `mcp/morpheus-mcp.js`, UnixAI OS'un `mcp/unixai_mcp.py` sunucusuyla birlikte bir MCP istemcisine eklenince iki sistem
 araç çağrılarıyla konuşur — bkz. [`mcp/README.md`](mcp/README.md).
+
+## Ajan ve MCP (birbiriyle konuşan iki ajan)
+
+MorpheusAI bir **ajandır**: kurumsal GPT + araçlarla çok adımlı çalışır. Araçlarını `POST /mcp` (Streamable HTTP) üzerinden başka alanlara **barındırır** (arayüzden üretilen token'lar, salt-okunur seçeneği, izinli Origin listesi) ve başka MCP sunucularına **istemci olarak bağlanır** (ör. UnixAI OS, diğer ekiplerin ajanları). İki uygulama `*_agent_ask` araçlarıyla birbirinin ajanına doğal dilde soru sorar; hop sınırı döngüyü önler. Gerçek uygulama her zaman insan onayı gerektirir.
+
+Kurulum ve mimari: [`mcp/README.md`](mcp/README.md) · Arayüz: **Ajan & MCP**
 
 ## LDAP ile giriş
 

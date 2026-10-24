@@ -61,6 +61,18 @@ const Api = (() => {
     log: (id) => request(`/logs/${encodeURIComponent(id)}`),
     history: (q = {}) => request(`/history?${new URLSearchParams(Object.entries(q).filter(([, v]) => v))}`),
     historyItem: (id) => request(`/history/${encodeURIComponent(id)}`),
+    agentSettings: () => request("/agent/settings"),
+    saveAgentSettings: (s) => request("/agent/settings", { method: "POST", body: s }),
+    conversations: () => request("/agent/conversations"),
+    conversation: (id) => request(`/agent/conversations/${encodeURIComponent(id)}`),
+    mcpServer: () => request("/mcp/server"),
+    createMcpToken: (name, readonly) => request("/mcp/tokens", { method: "POST", body: { name, readonly } }),
+    deleteMcpToken: (id) => request(`/mcp/tokens/${encodeURIComponent(id)}`, { method: "DELETE", body: {} }),
+    saveMcpOrigins: (allowedOrigins) => request("/mcp/origins", { method: "POST", body: { allowedOrigins } }),
+    mcpConnections: () => request("/mcp/connections"),
+    saveMcpConnection: (c) => request("/mcp/connections", { method: "POST", body: c }),
+    deleteMcpConnection: (id) => request(`/mcp/connections/${encodeURIComponent(id)}`, { method: "DELETE", body: {} }),
+    testMcpConnection: (id) => request(`/mcp/connections/${encodeURIComponent(id)}/test`, { method: "POST", body: {} }),
     remediations: (q = {}) => request(`/remediations?${new URLSearchParams(Object.entries(q).filter(([, v]) => v))}`),
     remediation: (id) => request(`/remediations/${encodeURIComponent(id)}`),
     approveRem: (id) => request(`/remediations/${encodeURIComponent(id)}/approve`, { method: "POST", body: {} }),
@@ -114,6 +126,11 @@ GET  /api/remediations/:id  → { ...Remediation, playbook, compliance, jobs[], 
 POST /api/remediations/:id/approve | reject    (yalnızca arayüz / yönetici)
 POST /api/remediations/:id/launch  ← { mode: "check"|"run", allowDisruptive? }  → AAP runner job
      Servisler arası: Authorization: Bearer <MORPHEUS_API_TOKEN>
+POST /mcp                   ← MCP (Streamable HTTP, JSON-RPC: initialize, tools/list, tools/call)  Authorization: Bearer <MCP token>
+GET  /api/agent/conversations[/:id]   GET|POST /api/agent/settings   GET /api/mcp/server
+POST /api/mcp/tokens ← { name, readonly } → { token } (bir kez)    POST /api/mcp/origins ← { allowedOrigins[] }
+GET|POST /api/mcp/connections   POST /api/mcp/connections/:id/test
+POST /api/chat              ← (GenAI modunda ajan: { reply, trace[], conversationId, mode })
 POST /api/chat              ← { messages: {role, content}[], context?, rules?, customRules? }  → { reply: "<markdown>" }
      context = AnalysisResult | { kind: "template", name, content } | { kind: "workflow", name, workflow }
 

@@ -28,6 +28,8 @@ const history = require("./lib/history");
 
 const auth = require("./lib/auth");
 const remediation = require("./lib/remediation");
+const agent = require("./lib/agent");
+const mcpHub = require("./lib/mcp-hub");
 const crypto = require("crypto");
 
 /* Servisler arası erişim (UnixAI OS köprüsü, MCP sunucusu): Authorization: Bearer <MORPHEUS_API_TOKEN>
@@ -59,7 +61,8 @@ function whoIs(req, session) {
 /* LDAP açıkken oturum gerektirmeyen uç noktalar */
 const PUBLIC_ROUTES = new Set(["POST /api/auth/login", "POST /api/auth/logout", "GET /api/auth/me", "GET /api/health"]);
 /* Yönetici yetkisi gereken uç noktalar (LDAP_ADMIN_GROUP tanımlıysa) */
-const ADMIN_ROUTES = new Set(["POST /api/limits", "POST /api/prompts"]);
+const ADMIN_ROUTES = new Set(["POST /api/limits", "POST /api/prompts", "POST /api/agent/settings", "POST /api/mcp/origins", "POST /api/mcp/tokens", "POST /api/mcp/connections"]);
+const isAdminRoute = (route, pathname, method) => ADMIN_ROUTES.has(route) || (method !== "GET" && /^\/api\/mcp\//.test(pathname));
 
 const PORT = process.env.PORT || 3000;
 const AI_BACKEND_URL = process.env.AI_BACKEND_URL || "";
@@ -172,7 +175,8 @@ const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function health(url) {
   const deep = Boolean(url.searchParams.get("deep"));
-  const out = { status: "ok", mode: MODE, catalog: CATALOG, aap: aap.status(), auth: auth.status() };
+  const out = { status: "ok", mode: MODE, catalog: CATALOG, aap: aap.status(), auth: auth.status(),
+    agent: { mode: agent.settings().mode, detected: agent.settings().detected, connections: mcpHub.connectionsView().length } };
   if (CATALOG === "aap" && deep) {
     try { const info = await aap.check(); out.aap = { ...aap.status(), check: "ok", ...info }; }
     catch (e) { out.status = "degraded"; out.aap = { ...aap.status(), check: "failed", error: e.message }; }
@@ -208,7 +212,7 @@ async function sendDetail(res, label, fetchFn) {
 }
 
 async function handleApi(req, res, url) {
-  const body = req.method === "POST" ? await readBody(req) : "";
+  const body = ["POST", "DELETE"].includes(req.method) ? await readBody(req) : "";
   let json;
   try { json = body ? JSON.parse(body) : {}; } catch { return sendJson(res, 400, { error: "Geçersiz JSON gövdesi" }); }
   const route = `${req.method} ${url.pathname}`;
@@ -241,7 +245,7 @@ async function handleApi(req, res, url) {
   }
   if (auth.isEnabled() && !session && (!PUBLIC_ROUTES.has(route) || url.searchParams.get("deep")))
     return sendJson(res, 401, { authRequired: true, error: "Oturum açmanız gerekiyor" });
-  if (ADMIN_ROUTES.has(route) && session && !session.isAdmin)
+  if (isAdminRoute(route, url.pathname, req.method) && session && !session.isAdmin)
     return sendJson(res, 403, { error: "Bu işlem için yönetici yetkisi gerekiyor (LDAP yönetici grubu)" });
 
   if (MODE === "proxy" && url.pathname !== "/api/health") return proxy(req, res, body);
@@ -279,6 +283,24 @@ async function handleApi(req, res, url) {
     case "POST /api/limits":
       try { return sendJson(res, 200, usage.saveLimits(json, who.user)); }
       catch (e) { return sendJson(res, 400, { error: e.message }); }
+    case "GET /api/agent/settings":
+      return sendJson(res, 200, { ...agent.settings(), defaults: agent.DEFAULTS });
+    case "POST /api/agent/settings":
+      return sendJson(res, 200, agent.saveSettings(json, who.user));
+    case "GET /api/agent/conversations":
+      return sendJson(res, 200, agent.conversations(Number(url.searchParams.get("limit") || 100)));
+    case "GET /api/mcp/server": {
+      const host = req.headers["x-forwarded-host"] || req.headers.host || `localhost:${PORT}`;
+      return sendJson(res, 200, mcpHub.serverView(`${req.headers["x-forwarded-proto"] || "http"}://${host}`));
+    }
+    case "POST /api/mcp/origins":
+      return sendJson(res, 200, { allowedOrigins: mcpHub.saveOrigins(json.allowedOrigins) });
+    case "POST /api/mcp/tokens":
+      return sendJson(res, 201, mcpHub.createToken(json.name, json.readonly, who.user));
+    case "GET /api/mcp/connections":
+      return sendJson(res, 200, mcpHub.connectionsView());
+    case "POST /api/mcp/connections":
+      return sendJson(res, 200, mcpHub.saveConnection(json, who.user));
     case "GET /api/remediations":
       return sendJson(res, 200, { items: remediation.list({ status: url.searchParams.get("status") || undefined, server: url.searchParams.get("server") || undefined }), config: remediation.config() });
     case "POST /api/remediations":
@@ -296,6 +318,12 @@ async function handleApi(req, res, url) {
       await delay(900);
       return sendJson(res, 200, remember("workflow", json, demo.analyzeWorkflow(json.workflow, json.rules), who));
     case "POST /api/chat":
+      if (ai && json.agent !== false) {
+        const ctxText = json.context ? (json.context.kind === "template" ? `Template: ${json.context.name}\n${json.context.content}`
+          : json.context.kind === "workflow" ? `Workflow: ${json.context.name}\n${JSON.stringify(json.context.workflow)}` : `Son analiz: ${JSON.stringify(json.context)}`) : null;
+        const r = await agent.run(json.messages || [], { ctx: { user: who.user, ip: who.ip, source: "arayüz", ai, readonly: false }, origin: who.user, context: ctxText ? { text: ctxText } : null });
+        return sendJson(res, 200, { ...r, engine: "agent" });
+      }
       if (ai) return sendJson(res, 200, await analyzer.chat(json, STANDARDS, who));
       await delay(600);
       return sendJson(res, 200, demo.chatReply(json.messages || [], json.context));
@@ -311,6 +339,18 @@ async function handleApi(req, res, url) {
   if (req.method === "GET" && (m = url.pathname.match(/^\/api\/history\/(.+)$/))) {
     const h = history.get(decodeURIComponent(m[1]));
     return h ? sendJson(res, 200, h) : sendJson(res, 404, { error: "Analiz kaydı bulunamadı" });
+  }
+  if (req.method === "GET" && (m = url.pathname.match(/^\/api\/agent\/conversations\/([0-9a-f]{16})$/))) {
+    const c = agent.conversation(m[1]);
+    return c ? sendJson(res, 200, c) : sendJson(res, 404, { error: "Konuşma bulunamadı" });
+  }
+  if (req.method === "DELETE" && (m = url.pathname.match(/^\/api\/mcp\/tokens\/([0-9a-f]{12})$/))) {
+    mcpHub.deleteToken(m[1]);
+    return sendJson(res, 200, { ok: true });
+  }
+  if ((m = url.pathname.match(/^\/api\/mcp\/connections\/([0-9a-f]{12})(\/test)?$/))) {
+    if (req.method === "DELETE" && !m[2]) { mcpHub.deleteConnection(m[1]); return sendJson(res, 200, { ok: true }); }
+    if (req.method === "POST" && m[2]) return sendJson(res, 200, await mcpHub.testConnection(m[1]));
   }
   if ((m = url.pathname.match(/^\/api\/remediations\/([\w-]+)(?:\/(approve|reject|launch|jobs\/(\d+)\/stdout))?$/))) {
     const id = m[1], sub = m[2];
@@ -338,6 +378,39 @@ async function handleApi(req, res, url) {
   sendJson(res, 404, { error: "Bilinmeyen uç nokta", route });
 }
 
+/* ------------------------------------------------------------------ */
+/*  Barındırılan MCP sunucusu (Streamable HTTP, JSON yanıt, durumsuz)  */
+/* ------------------------------------------------------------------ */
+function corsHeaders(origin) {
+  return origin ? {
+    "Access-Control-Allow-Origin": origin, Vary: "Origin", "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "authorization, content-type, accept, mcp-session-id, mcp-protocol-version",
+    "Access-Control-Expose-Headers": "mcp-session-id", "Access-Control-Max-Age": "600",
+  } : {};
+}
+
+async function handleMcp(req, res) {
+  const origin = req.headers.origin;
+  const reply = (code, data, extra = {}) => {
+    res.writeHead(code, { ...corsHeaders(origin), ...extra, ...(data === undefined ? { "Content-Length": 0 } : { "Content-Type": MIME[".json"] }) });
+    res.end(data === undefined ? undefined : JSON.stringify(data));
+  };
+  if (!mcpHub.originAllowed(origin)) return reply(403, { jsonrpc: "2.0", id: null, error: { code: -32000, message: "Origin izinli değil (Ajan & MCP → İzinli alanlar)" } });
+  if (req.method === "OPTIONS") return reply(204);
+  if (req.method === "GET") return reply(405, { error: "Bu sunucu yalnızca POST (JSON yanıt) destekler" }, { Allow: "POST" });
+  if (req.method !== "POST") return reply(405, { error: "Method not allowed" });
+  const principal = mcpHub.authenticate(req.headers);
+  if (!principal) return reply(401, { jsonrpc: "2.0", id: null, error: { code: -32001, message: "Geçersiz veya eksik token (Authorization: Bearer)" } }, { "WWW-Authenticate": 'Bearer realm="morpheusai"' });
+  let msg;
+  try { msg = JSON.parse(await readBody(req)); } catch { return reply(400, { jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } }); }
+  const ai = MODE === "genai";
+  const out = Array.isArray(msg)
+    ? (await Promise.all(msg.map((x) => mcpHub.handleRpc(x, principal, ai)))).filter(Boolean)
+    : await mcpHub.handleRpc(msg, principal, ai);
+  if (!out || (Array.isArray(out) && !out.length)) return reply(202);
+  return reply(200, out);
+}
+
 function serveStatic(req, res, url) {
   let p = path.normalize(decodeURIComponent(url.pathname)).replace(/^([/\\])+/, "");
   let file = path.join(PUBLIC_DIR, p || "index.html");
@@ -356,6 +429,7 @@ const server = http
   .createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
     try {
+      if (url.pathname === "/mcp") return await handleMcp(req, res);
       if (url.pathname.startsWith("/api/")) return await handleApi(req, res, url);
       serveStatic(req, res, url);
     } catch (e) {

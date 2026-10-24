@@ -173,7 +173,7 @@ async function genaiSuite() {
     const tmsBody = JSON.parse(seen.tmsBody);
     assert(tmsBody.client_id === "client-xyz" && tmsBody.password === 'p@ss"w\\rd', "TMS_BODY {{env:..}} ile dolduruldu, özel karakterli parola JSON'u bozmadı");
 
-    const chat = await postJson(base, "/api/chat", { messages: [{ role: "user", content: "selam" }] });
+    const chat = await postJson(base, "/api/chat", { messages: [{ role: "user", content: "selam" }], agent: false });
     assert(chat.reply.includes("Morpheus"), "chat cevabı choices.0.message.content'ten okundu");
 
     const h = seen.lastChatHeaders;
@@ -192,6 +192,7 @@ async function genaiSuite() {
     const ctxChat = await postJson(base, "/api/chat", {
       messages: [{ role: "user", content: "analiz et" }],
       context: { kind: "template", name: "X", content: "- hosts: all" },
+      agent: false,
     });
     const sys = seen.lastChatBody.messages[0].content;
     assert(ctxChat.reply && sys.includes("STD-005") && sys.includes("JT-002"), "sohbete kurumsal standartlar eklendi");
@@ -202,12 +203,12 @@ async function genaiSuite() {
     assert(saved.system === SYS && saved.includeStandards === false, "sistem mesajı Ayarlar'dan kaydedildi");
     const got = await (await fetch(`${base}/api/prompts`)).json();
     assert(got.system === SYS && got.defaults.system.length > 0, "kaydedilen sistem mesajı geri okundu");
-    await postJson(base, "/api/chat", { messages: [{ role: "user", content: "Test" }] });
+    await postJson(base, "/api/chat", { messages: [{ role: "user", content: "Test" }], agent: false });
     const [m0, m1] = seen.lastChatBody.messages;
     assert(m0.role === "system" && m0.content === SYS, "role:system içeriği birebir kaydedilen metin");
     assert(m1.role === "user" && m1.content === "Test" && seen.lastChatBody.messages.length === 2, "role:user içeriği yazılan mesajın aynısı");
     await postJson(base, "/api/prompts", { system: SYS, includeStandards: true });
-    await postJson(base, "/api/chat", { messages: [{ role: "user", content: "Test" }] });
+    await postJson(base, "/api/chat", { messages: [{ role: "user", content: "Test" }], agent: false });
     const sys2 = seen.lastChatBody.messages[0].content;
     assert(sys2.startsWith(SYS) && sys2.includes("## Kurumsal standartlar"), "standart ekleme açıkken standartlar metnin sonuna eklendi");
     const tplSys = (await postJson(base, "/api/analyze/template", { content: "- hosts: all" }), seen.lastChatBody.messages[0].content);
@@ -217,7 +218,7 @@ async function genaiSuite() {
 
     const empty = await fetch(`${base}/api/chat`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: [{ role: "user", content: "BOS_CEVAP" }] }),
+      body: JSON.stringify({ messages: [{ role: "user", content: "BOS_CEVAP" }], agent: false }),
     });
     const emptyBody = await empty.json();
     assert(!empty.ok && /boş cevap.*length.*max_completion_tokens/s.test(emptyBody.error), "boş model cevabı açık hata olarak raporlandı");
@@ -236,7 +237,7 @@ async function genaiSuite() {
     const asUser = (user, content) => fetch(`${base}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Morpheus-User": encodeURIComponent(user) },
-      body: JSON.stringify({ messages: [{ role: "user", content }] }),
+      body: JSON.stringify({ messages: [{ role: "user", content }], agent: false }),
     });
     assert((await asUser("Ayşe Çelik", "nginx template'i nasıl?")).ok, "kullanıcı adıyla sohbet");
     const rep = await (await fetch(`${base}/api/usage`)).json();
@@ -727,6 +728,51 @@ async function remediationSuite() {
   }
 }
 
+
+/* ------------------------------------------------------------------ */
+/*  Barındırılan MCP sunucusu (/mcp)                                   */
+/* ------------------------------------------------------------------ */
+async function mcpHostSuite() {
+  console.log("\n[Barındırılan MCP — /mcp]");
+  const base = "http://127.0.0.1:3981";
+  const srv = startServer(3981, { MORPHEUS_MODE: "demo", MORPHEUS_API_TOKEN: "" });
+  const mcp = async (msg, token, origin) => {
+    const r = await fetch(`${base}/mcp`, { method: "POST", body: JSON.stringify(msg),
+      headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...(token ? { authorization: `Bearer ${token}` } : {}), ...(origin ? { origin } : {}) } });
+    const t = await r.text();
+    return { status: r.status, data: t ? JSON.parse(t) : null };
+  };
+  try {
+    await waitFor(base);
+    const full = (await postJson(base, "/api/mcp/tokens", { name: "unixai", readonly: false })).token;
+    const ro = (await postJson(base, "/api/mcp/tokens", { name: "ekip-x", readonly: true })).token;
+    assert(full.startsWith("mph_") && ro, "arayüzden MCP erişim token'ları üretildi");
+    assert((await mcp({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} })).status === 401, "/mcp token olmadan 401");
+    const init = await mcp({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26" } }, full);
+    assert(init.data.result.serverInfo.name === "morpheusai" && init.data.result.protocolVersion === "2025-03-26", "/mcp initialize ve sürüm anlaşması");
+    assert((await mcp({ jsonrpc: "2.0", method: "notifications/initialized" }, full)).status === 202, "/mcp bildirim → 202");
+    const all = (await mcp({ jsonrpc: "2.0", id: 2, method: "tools/list" }, full)).data.result.tools.map((t) => t.name);
+    const roNames = (await mcp({ jsonrpc: "2.0", id: 2, method: "tools/list" }, ro)).data.result.tools.map((t) => t.name);
+    assert(all.includes("morpheus_create_remediation") && !roNames.includes("morpheus_create_remediation") && roNames.includes("morpheus_agent_ask"),
+      "salt-okunur token yazma araçlarını görmüyor");
+    const std = await mcp({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "morpheus_list_standards", arguments: { scope: "template" } } }, ro);
+    assert(!std.data.result.isError && std.data.result.structuredContent.items.some((r) => r.id === "STD-005"), "/mcp tools/call (standartlar)");
+    const deny = await mcp({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "morpheus_create_remediation", arguments: { server: { name: "x" }, finding: { title: "y" } } } }, ro);
+    assert(deny.data.result.isError, "salt-okunur token ile yazma aracı reddedildi");
+    const ask = await mcp({ jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "morpheus_agent_ask", arguments: { question: "selam" } } }, full);
+    assert(ask.data.result.isError && /GenAI/.test(ask.data.result.content[0].text), "GenAI yokken ajan aracı anlaşılır hata döndü");
+    assert((await mcp({ jsonrpc: "2.0", id: 6, method: "ping" }, full, "https://evil.example")).status === 403, "izinsiz Origin reddedildi");
+    await postJson(base, "/api/mcp/origins", { allowedOrigins: ["https://portal.kurum.local"] });
+    const pre = await fetch(`${base}/mcp`, { method: "OPTIONS", headers: { origin: "https://portal.kurum.local" } });
+    assert(pre.status === 204 && pre.headers.get("access-control-allow-origin") === "https://portal.kurum.local", "izinli Origin için CORS ön kontrolü");
+    const conn = await postJson(base, "/api/mcp/connections", { name: "kendisi", url: `${base}/mcp`, token: full });
+    const t = await postJson(base, `/api/mcp/connections/${conn.id}/test`, {});
+    assert(conn.token === "••••••••" && t.ok && t.tools.some((x) => x.name === "morpheus_list_standards"), "MCP istemcisi uzak sunucuya bağlandı (araçlar listelendi)");
+  } finally {
+    srv.kill();
+  }
+}
+
 (async () => {
   try {
     await demoSuite();
@@ -734,6 +780,7 @@ async function remediationSuite() {
     await aapSuite();
     await ldapSuite();
     await remediationSuite();
+    await mcpHostSuite();
     console.log("\nSmoke test başarılı.");
   } catch (e) {
     console.error(`\n✗ ${e.message}`);

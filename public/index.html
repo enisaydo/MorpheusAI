@@ -33,13 +33,14 @@
       <div class="nav-group">Analiz</div>
       <a href="#/template" data-route="template">Template Analizi</a>
       <a href="#/workflow" data-route="workflow">Workflow Analizi</a>
-      <a href="#/oracle" data-route="oracle">Morpheus'a Sor</a>
+      <a href="#/oracle" data-route="oracle">Morpheus Ajanı</a>
       <a href="#/history" data-route="history">Analiz Geçmişi</a>
       <a href="#/remediations" data-route="remediations">Düzeltmeler <span class="nav-count" id="remCount"></span></a>
       <div class="nav-group">Yönetim</div>
       <a href="#/standards" data-route="standards">Standartlar</a>
       <a href="#/usage" data-route="usage">Token Kullanımı</a>
       <a href="#/logs" data-route="logs">AI Logları</a>
+      <a href="#/agent" data-route="agent">Ajan &amp; MCP</a>
       <a href="#/settings" data-route="settings">Ayarlar</a>
     </nav>
 
@@ -138,7 +139,7 @@
       <!-- ---------- CHAT ---------- -->
       <section class="view" data-view="oracle">
         <div class="page-head">
-          <div><h1>Morpheus'a Sor</h1><p>Template/workflow seçin veya YAML yapıştırın; Morpheus standartlara göre yorumlasın.</p></div>
+          <div><h1>Morpheus Ajanı</h1><p>Ajan standartları okur, playbook üretir/analiz eder, AAP'de check çalıştırır ve bağlı ajanlarla (ör. UnixAI OS) konuşur. Her adım cevabın altında görünür.</p></div>
         </div>
         <div class="card chat">
           <div class="chat-log" id="chatLog"></div>
@@ -301,6 +302,61 @@
             <label class="muted sm"><input type="checkbox" id="logAuto" /> 5 sn'de bir yenile</label>
           </div>
           <div class="table-wrap"><table class="table" id="logTable"></table></div>
+        </div>
+      </section>
+
+      <!-- ---------- AJAN & MCP ---------- -->
+      <section class="view" data-view="agent">
+        <div class="page-head">
+          <div><h1>Ajan &amp; MCP</h1><p>Morpheus ajanı başka MCP sunucularına (ör. UnixAI OS, diğer ekiplerin ajanları) bağlanır; kendi araçlarını da MCP üzerinden başka alanlara sunar.</p></div>
+          <a class="btn primary" href="#/oracle">Ajanla konuş</a>
+        </div>
+        <div class="agent-map" id="agentMap"></div>
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head"><h3>Bu uygulamanın MCP sunucusu</h3><span class="label green" id="mcpEndpointLabel">barındırılıyor</span></div>
+            <dl class="kv" id="mcpServerInfo"></dl>
+            <div class="sub-h">Erişim token'ları</div>
+            <div class="table-wrap"><table class="table compact" id="mcpTokens"></table></div>
+            <form id="mcpTokenForm" class="toolbar mt">
+              <input class="input sm" name="name" placeholder="İstemci adı (ör. unixai, ekip-x-ajan)" required />
+              <label class="check sm"><input type="checkbox" name="readonly" /> Salt-okunur</label>
+              <button class="btn primary sm" type="submit">Token üret</button>
+            </form>
+            <div class="sub-h">İzinli alanlar (tarayıcı tabanlı istemciler için Origin)</div>
+            <form id="mcpOriginForm" class="form">
+              <textarea class="input mono" name="origins" rows="3" placeholder="https://portal.kurum.local&#10;https://ajan.ekipx.kurum.local"></textarea>
+              <small>Sunucudan sunucuya (ajan/MCP istemcisi) istekler Origin göndermez ve yalnızca token ile doğrulanır. <code>*</code> tüm alanlara izin verir (önerilmez).</small>
+              <div class="toolbar"><button class="btn sm" type="submit">Kaydet</button></div>
+            </form>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>Bağlı MCP sunucuları</h3><button class="btn primary sm" id="mcpConnAdd">Bağlantı ekle</button></div>
+            <p class="muted sm">Araçları Morpheus ajanına <code>&lt;bağlantı&gt;__&lt;araç&gt;</code> adıyla açılır. Adı <code>agent_ask</code> ile biten araçlar uzak bir ajanla doğal dilde konuşur.</p>
+            <div class="table-wrap"><table class="table compact" id="mcpConns"></table></div>
+            <div class="sub-h">Ajan ayarları</div>
+            <form id="agentForm" class="form">
+              <div class="grid-2">
+                <label>Araç çağırma modu
+                  <select class="input" name="mode">
+                    <option value="auto">Otomatik (önce function calling, olmazsa JSON)</option>
+                    <option value="native">Function calling (tools)</option>
+                    <option value="json">JSON protokolü (her gateway)</option>
+                  </select>
+                  <small id="agentDetected"></small>
+                </label>
+                <label>En fazla adım<input class="input" name="maxSteps" type="number" min="1" max="20" /></label>
+                <label>Ajanlar arası hop sınırı<input class="input" name="maxHop" type="number" min="0" max="3" />
+                  <small>1: Morpheus başka ajana sorabilir, gelen istekte geri soramaz (döngü önlemi).</small></label>
+                <label class="check"><input type="checkbox" name="allowWrite" /> Ajan düzeltme oluşturabilir ve check (dry-run) başlatabilir</label>
+              </div>
+              <div class="toolbar"><button class="btn primary sm" type="submit">Kaydet</button></div>
+            </form>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Ajan konuşmaları</h3><button class="btn sm" id="convRefresh">Yenile</button></div>
+          <div class="table-wrap"><table class="table" id="convTable"></table></div>
         </div>
       </section>
 
