@@ -41,16 +41,35 @@
 
 /* ---------------- sahne ---------------- */
 .uv-stage {
-  position: relative; height: clamp(300px, 38vw, 400px); margin: 4px 0 18px; border-radius: 14px; overflow: hidden;
-  background: var(--uv-bg); border: 1px solid var(--uv-line-2);
+  position: relative; height: clamp(400px, 46vw, 540px); margin: 4px 0 18px; border-radius: 14px; overflow: hidden;
+  background: var(--uv-bg); border: 1px solid var(--uv-line-2); user-select: none;
   box-shadow: inset 0 0 80px rgba(0, 0, 0, 0.9), 0 0 30px rgba(0, 255, 102, 0.12);
 }
-.uv-stage::after { /* CRT tarama çizgileri + köşe kararması */
+.uv-stage::after { /* CRT tarama çizgileri */
   content: ""; position: absolute; inset: 0; pointer-events: none;
-  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.18) 0 1px, transparent 1px 3px), radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.65));
+  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.14) 0 1px, transparent 1px 3px);
 }
-.uv-rain, .uv-fx { position: absolute; inset: 0; display: block; }
-.uv-rain { opacity: 0.55; }
+.uv-world { position: absolute; inset: 0; display: block; cursor: grab; touch-action: pan-y; }
+.uv-world:active { cursor: grabbing; }
+.uv-places {
+  position: absolute; z-index: 2; left: 12px; right: 12px; bottom: 52px; display: flex; gap: 6px; flex-wrap: wrap; justify-content: center;
+  pointer-events: none;
+}
+.uv-places button {
+  font: 600 11.5px var(--mono, monospace); color: var(--uv-text); background: rgba(0, 10, 4, 0.72); border: 1px solid var(--uv-line-2);
+  border-radius: 999px; padding: 4px 11px; cursor: pointer; backdrop-filter: blur(3px); pointer-events: auto;
+}
+.uv-places button:hover { color: #001a0a; background: var(--uv-green); box-shadow: 0 0 14px rgba(0, 255, 102, 0.5); }
+.uv-places button:focus-visible { outline: 2px solid var(--uv-cyan); outline-offset: 2px; }
+.uv-chapter {
+  position: absolute; z-index: 2; left: 50%; top: 64px; transform: translateX(-50%); pointer-events: none; opacity: 0;
+  font: 700 15px var(--display, sans-serif); letter-spacing: 0.18em; text-transform: uppercase; color: #e6ffee; white-space: nowrap;
+  text-shadow: 0 0 14px var(--uv-green), 0 0 2px #000; padding: 6px 18px; border-top: 1px solid var(--uv-line-2); border-bottom: 1px solid var(--uv-line-2);
+  background: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.65), transparent);
+}
+.uv-chapter.on { animation: uv-chapter 3.2s ease forwards; }
+@keyframes uv-chapter { 0% { opacity: 0; letter-spacing: 0.5em; } 15% { opacity: 1; letter-spacing: 0.18em; } 80% { opacity: 1; } 100% { opacity: 0; } }
+.uv-btn.hidden { display: none; }
 .uv-hud { position: absolute; top: 12px; left: 16px; right: 16px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; z-index: 2; }
 .uv-title { display: grid; gap: 2px; }
 .uv-title small { font: 11px var(--mono, monospace); color: var(--uv-muted); letter-spacing: 0.04em; }
@@ -117,14 +136,18 @@
 .view.universe ::-webkit-scrollbar-thumb { background: rgba(0, 255, 102, 0.3); }
 
 @media (prefers-reduced-motion: reduce) {
-  .uv-glitch::before, .uv-glitch::after, .uv-typing::after, .uv-decrypt .bubble { animation: none; }
+  .uv-glitch::before, .uv-glitch::after, .uv-typing::after, .uv-decrypt .bubble, .uv-chapter.on { animation: none; }
+  .uv-chapter.on { opacity: 1; }
   .uv-msg, .view.universe .a2a-rem { transition: none; }
 }
 .view.universe .a2a-layout > * { min-width: 0; }
 .view.universe .a2a-detail pre { max-width: 100%; overflow-x: auto; }
 @media (max-width: 700px) {
   .view.universe { padding: 14px 12px; border-radius: 12px; }
-  .uv-stage { height: 340px; }
+  .uv-stage { height: 420px; }
+  .uv-places { bottom: 50px; }
+  .uv-places button { font-size: 10.5px; padding: 3px 8px; }
+  .uv-chapter { font-size: 12px; top: 54px; }
   .uv-title small, .uv-stats { display: none; }
   .uv-hud { top: 10px; left: 10px; right: 10px; }
   .uv-glitch { font-size: 15px; letter-spacing: 0.16em; }
