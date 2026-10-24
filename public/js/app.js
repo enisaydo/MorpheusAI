@@ -1487,7 +1487,8 @@ function bindEvents() {
   addEventListener("hashchange", route);
   $("#menuBtn").onclick = () => $("#sidebar").classList.toggle("open");
   $("#modalClose").onclick = closeModal;
-  $("#modal").onclick = (e) => e.target.id === "modal" && closeModal();
+  // Not: onclick işleyicisi false döndürürse tarayıcı tıklamayı iptal eder (modal içindeki submit düğmeleri çalışmaz)
+  $("#modal").onclick = (e) => { if (e.target.id === "modal") closeModal(); };
   addEventListener("keydown", (e) => e.key === "Escape" && closeModal());
 
   document.addEventListener("click", (e) => {
@@ -1556,7 +1557,7 @@ function bindEvents() {
   });
   ct.addEventListener("input", () => { ct.style.height = "auto"; ct.style.height = ct.scrollHeight + "px"; });
   $("#chatSuggest").innerHTML = SUGGESTIONS.map((s) => `<button type="button">${esc(s)}</button>`).join("");
-  $("#chatSuggest").onclick = (e) => e.target.matches("button") && sendChat(e.target.textContent);
+  $("#chatSuggest").onclick = (e) => { if (e.target.matches("button")) sendChat(e.target.textContent); };
   $("#chatClear").onclick = resetChat;
 
   // standards
