@@ -68,7 +68,7 @@ const Api = (() => {
     conversations: () => request("/agent/conversations"),
     conversation: (id) => request(`/agent/conversations/${encodeURIComponent(id)}`),
     mcpServer: () => request("/mcp/server"),
-    createMcpToken: (name, readonly) => request("/mcp/tokens", { method: "POST", body: { name, readonly } }),
+    createMcpToken: (name, readonly, canApprove = false) => request("/mcp/tokens", { method: "POST", body: { name, readonly, canApprove } }),
     deleteMcpToken: (id) => request(`/mcp/tokens/${encodeURIComponent(id)}`, { method: "DELETE", body: {} }),
     saveMcpOrigins: (allowedOrigins) => request("/mcp/origins", { method: "POST", body: { allowedOrigins } }),
     mcpConnections: () => request("/mcp/connections"),

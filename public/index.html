@@ -340,6 +340,7 @@
             <form id="mcpTokenForm" class="toolbar mt">
               <input class="input sm" name="name" placeholder="İstemci adı (ör. unixai, ekip-x-ajan)" required />
               <label class="check sm"><input type="checkbox" name="readonly" /> Salt-okunur</label>
+              <label class="check sm" title="UnixAI gibi güvenilen bir uygulama, kendi ekranında bir kişinin verdiği playbook onayını Morpheus'a aktarabilir (X-Approved-By). Ajanlar onay veremez."><input type="checkbox" name="canApprove" /> Onay aktarabilir</label>
               <button class="btn primary sm" type="submit">Token üret</button>
             </form>
             <div class="sub-h">İzinli alanlar (tarayıcı tabanlı istemciler için Origin)</div>

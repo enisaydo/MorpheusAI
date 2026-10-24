@@ -1249,8 +1249,10 @@ async function showRemediation(id) {
     <div data-rpane="events" class="hidden">${r.events.slice().reverse().map((e) => `<div class="ev"><span class="mono muted">${esc(fmtTime(e.at))}</span> <b>${esc(e.by)}</b> — ${esc(e.text)}</div>`).join("")}</div>
     <div class="result-actions">
       ${r.rejected ? `<span class="muted">Reddedildi: ${esc(r.rejected.by)}${r.rejected.reason ? ` — ${esc(r.rejected.reason)}` : ""}</span>` : `
-        <button class="btn secondary" id="remCheck" ${!r.runnable || active ? "disabled" : ""}>Check modda çalıştır (dry-run)</button>
-        ${r.approval ? `<span class="label blue">Onaylayan: ${esc(r.approval.by)}</span>` : `<button class="btn secondary" id="remApprove" ${!r.runnable ? "disabled" : ""}>Onayla</button>`}
+        ${r.approval ? `<span class="label blue">Onaylayan: ${esc(r.approval.by)}</span>
+          <button class="btn secondary" id="remCheck" ${!r.runnable || active ? "disabled" : ""}>Check'i tekrar çalıştır (dry-run)</button>`
+        : `<span class="muted sm">Bu playbook onayınızı bekliyor; onaydan önce AAP'de hiçbir şey çalıştırılmaz.</span>
+          <button class="btn primary" id="remApprove" ${!r.runnable ? "disabled" : ""}>Onayla${cfg.checkOnApprove !== false ? " (AAP'de check başlar)" : ""}</button>`}
         <button class="btn primary" id="remRun" ${!r.runnable || active || !r.approval || (cfg.requireCheck !== false && !checkOk) ? "disabled" : ""} title="${!r.approval ? "Önce onaylayın" : cfg.requireCheck !== false && !checkOk ? "Önce başarılı bir check çalıştırması gerekli" : ""}">Sunucuya uygula</button>
         <label class="muted sm">${r.disruptive ? `<input type="checkbox" id="remDisruptive" /> Kesinti riskli adımlara izin ver` : ""}</label>
         <span class="toolbar-spacer"></span>
@@ -1284,7 +1286,7 @@ async function showRemediation(id) {
   };
   $("#remCopy").onclick = () => copyText(r.playbook);
   act("#remCheck", () => Api.launchRem(r.id, "check"), "Check (dry-run) çalıştırması AAP'de başlatıldı");
-  act("#remApprove", () => Api.approveRem(r.id), "Onaylandı");
+  act("#remApprove", () => Api.approveRem(r.id), "Onaylandı; check (dry-run) AAP'de başlatıldı");
   act("#remRun", () => Api.launchRem(r.id, "run", Boolean($("#remDisruptive")?.checked)), "Playbook sunucuya uygulanıyor (AAP)");
   act("#remReject", () => Api.rejectRem(r.id, prompt("Ret nedeni (opsiyonel):") || ""), "Reddedildi");
   if (active) State.remTimer = setTimeout(() => !$("#modal").classList.contains("hidden") && showRemediation(r.id), 5000);
@@ -1363,7 +1365,7 @@ function renderMcpServer(s) {
     <dt>.env token</dt><dd>${s.envToken ? "UNIXAI_API_TOKEN tanımlı (tam yetki)" : "yok"}</dd>`;
   $("#copyEndpoint").onclick = () => copyText(s.endpoint);
   $("#mcpTokens").innerHTML = `<tr><th>Ad</th><th>Önek</th><th>Yetki</th><th>Son kullanım</th><th></th></tr>` +
-    (s.tokens.map((t) => `<tr><td class="t-name">${esc(t.name)}</td><td class="mono">${esc(t.prefix)}…</td><td>${t.readonly ? "salt-okunur" : "tam"}</td>
+    (s.tokens.map((t) => `<tr><td class="t-name">${esc(t.name)}</td><td class="mono">${esc(t.prefix)}…</td><td>${t.readonly ? "salt-okunur" : "tam"}${t.canApprove ? ` <span class="label gold">onay aktarabilir</span>` : ""}</td>
       <td class="t-sub">${t.lastUsedAt ? esc(ago(t.lastUsedAt)) : "—"}</td><td class="row-actions"><button class="btn link sm danger" data-del-token="${esc(t.id)}">İptal et</button></td></tr>`).join("") ||
       `<tr><td colspan="5" class="muted">Token yok. Başka bir ajanın / MCP istemcisinin bağlanması için token üretin.</td></tr>`);
   $("#mcpOriginForm").elements.origins.value = s.allowedOrigins.join("\n");
@@ -1447,7 +1449,7 @@ async function showConversation(id) {
 function bindAgentPage() {
   $("#mcpTokenForm").onsubmit = async (e) => {
     e.preventDefault();
-    try { const t = await Api.createMcpToken(e.target.elements.name.value, e.target.elements.readonly.checked); e.target.reset(); showNewToken(t); loadAgentPage(); }
+    try { const t = await Api.createMcpToken(e.target.elements.name.value, e.target.elements.readonly.checked, e.target.elements.canApprove?.checked); e.target.reset(); showNewToken(t); loadAgentPage(); }
     catch (err) { toast(err.message, true); }
   };
   $("#mcpOriginForm").onsubmit = async (e) => {

@@ -87,8 +87,9 @@ verbosity, timeout, execution environment, bildirimler...) üzerinden yapılır.
 UnixAI OS bir sunucuda bulgu bulduğunda `POST /api/remediations` ile Morpheus'a gönderir (Bearer `MORPHEUS_API_TOKEN`).
 Morpheus kurumsal standartlara uygun bir playbook üretir (GenAI; yoksa yalnızca salt-okunur tanı komutlarından güvenli bir playbook),
 standart analizinden geçirir, uyum skoru `REMEDIATION_MIN_SCORE` altındaysa ihlalleri modele verip bir kez yeniden üretir.
-**Düzeltmeler** ekranında yönetici playbook'u inceler, onaylar; AAP'deki runner job template'i ile önce **check (dry-run)**,
-sonra **gerçek** olarak o sunucu (`limit`) için çalıştırılır. Kurulum: [`deploy/aap/README.md`](deploy/aap/README.md).
+Playbook **onay bekler**: onaydan önce AAP'de hiçbir şey çalışmaz (istek UnixAI ajanından gelse bile). Bir kişi **Düzeltmeler**
+ekranından veya **UnixAI ekranından** playbook'u görüp onaylar; ardından AAP runner job template'i ile **check (dry-run)** otomatik başlar,
+check başarılıysa kişi **Sunucuya uygula** der ve o sunucu (`limit`) için gerçek çalıştırma yapılır. Kurulum: [`deploy/aap/README.md`](deploy/aap/README.md).
 
 **MCP:** `mcp/morpheus-mcp.js`, UnixAI OS'un `mcp/unixai_mcp.py` sunucusuyla birlikte bir MCP istemcisine eklenince iki sistem
 araç çağrılarıyla konuşur — bkz. [`mcp/README.md`](mcp/README.md).

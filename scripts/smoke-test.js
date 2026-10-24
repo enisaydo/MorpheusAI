@@ -646,8 +646,8 @@ async function remediationSuite() {
     MORPHEUS_MODE: "demo", AAP_URL: "http://127.0.0.1:3983", AAP_TOKEN: "aap-exec", AAP_API_PREFIX: "/api/v2",
     REMEDIATION_JOB_TEMPLATE_ID: "42", MORPHEUS_API_TOKEN: TOKEN,
   });
-  const call = (p, { method = "GET", body, token = TOKEN } = {}) =>
-    fetch(base + "/api" + p, { method, headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: body ? JSON.stringify(body) : undefined })
+  const call = (p, { method = "GET", body, token = TOKEN, headers = {} } = {}) =>
+    fetch(base + "/api" + p, { method, headers: { "content-type": "application/json", ...headers, ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: body ? JSON.stringify(body) : undefined })
       .then(async (r) => ({ status: r.status, data: await r.text().then((t) => { try { return JSON.parse(t); } catch { return t; } }) }));
   const mcp = spawn(process.execPath, [path.join(__dirname, "..", "mcp", "morpheus-mcp.js")], {
     env: { ...process.env, MORPHEUS_URL: base, MORPHEUS_API_TOKEN: TOKEN }, stdio: ["pipe", "pipe", "ignore"],
@@ -686,27 +686,34 @@ async function remediationSuite() {
       "GenAI yokken yalnızca salt-okunur tanı komutları çalıştırılıyor (lvextend bilgi olarak)");
     assert(typeof r.compliance?.score === "number", `standart analizi yapıldı (uyum ${r.compliance.score})`);
     assert((await call(`/remediations/${r.id}/launch`, { method: "POST", body: { mode: "run" } })).status === 409, "onaysız gerçek çalıştırma engellendi");
-    assert((await call(`/remediations/${r.id}/approve`, { method: "POST", body: {} })).status === 403, "API token ile onay verilemez (yalnızca arayüz)");
+    const noChk = await call(`/remediations/${r.id}/launch`, { method: "POST", body: { mode: "check" } });
+    assert(noChk.status === 409 && /onay/i.test(noChk.data.error) && seen.launches.length === 0, "onay olmadan AAP'ye check bile gönderilmedi");
+    assert((await call(`/remediations/${r.id}/approve`, { method: "POST", body: {}, headers: { "x-approved-by": "sahte" } })).status === 403,
+      "'onay aktarabilir' olmayan API token ile onay verilemez");
 
-    const chk = await call(`/remediations/${r.id}/launch`, { method: "POST", body: { mode: "check" } });
+    // UnixAI gibi güvenilen uygulama: arayüzde üretilen 'onay aktarabilir' token + onaylayan kişinin adı
+    const relay = (await call("/mcp/tokens", { method: "POST", body: { name: "unixai-relay", canApprove: true }, token: null })).data;
+    assert(relay.canApprove === true && relay.token, "'onay aktarabilir' token üretildi");
+    assert((await call(`/remediations/${r.id}/approve`, { method: "POST", body: {}, token: relay.token })).status === 403, "onaylayan kişi adı (X-Approved-By) olmadan onay reddedildi");
+    const ok = await call(`/remediations/${r.id}/approve`, { method: "POST", body: {}, token: relay.token, headers: { "x-approved-by": "EnisA" } });
+    assert(ok.status === 200 && /^EnisA \(unixai-relay üzerinden\)$/.test(ok.data.approval?.by), "UnixAI üzerinden bir kişinin onayı aktarıldı");
     const l = seen.launches[0];
-    assert(chk.status === 202 && chk.data.status === "check_running" && l.template === "42" && l.job_type === "check" && l.limit === "rhel-db01.corp.local",
-      "check (dry-run) AAP runner'ında doğru limit ile başlatıldı");
+    assert(ok.data.status === "check_running" && seen.launches.length === 1 && l.template === "42" && l.job_type === "check" && l.limit === "rhel-db01.corp.local",
+      "onaydan sonra check (dry-run) AAP runner'ında doğru limit ile otomatik başlatıldı");
     const tasks = Buffer.from(l.extra_vars.remediation_tasks_b64, "base64").toString("utf8");
     assert(l.extra_vars.target_host === "rhel-db01.corp.local" && /^- name: "Tanı \| df -h \/u01"/m.test(tasks) && l.extra_vars.unixai_allow_disruptive === false,
       "runner'a task listesi base64 olarak gönderildi");
-
-    const ui = await call(`/remediations/${r.id}/approve`, { method: "POST", body: {}, token: null });
-    assert(ui.status === 200 && ui.data.approval, "arayüzden onaylandı");
-    assert((await call(`/remediations/${r.id}/launch`, { method: "POST", body: { mode: "run" } })).status === 409, "check bitmeden gerçek çalıştırma engellendi");
+    assert((await call(`/remediations/${r.id}/launch`, { method: "POST", body: { mode: "run" }, token: null })).status === 409, "check bitmeden gerçek çalıştırma engellendi");
     seen.jobs[1000].status = "successful";
     await new Promise((res) => setTimeout(res, 3100)); // durum yenileme aralığı
     const after = await call(`/remediations/${r.id}`);
-    assert(after.data.status === "approved" && after.data.jobs[0].status === "successful", "AAP iş durumu güncellendi (check başarılı)");
+    assert(after.data.status === "check_ok" && after.data.jobs[0].status === "successful", "AAP iş durumu güncellendi (check başarılı)");
     const out = await call(`/remediations/${r.id}/jobs/1000/stdout`);
     assert(String(out.data).includes("job=1000"), "AAP iş çıktısı okundu");
-    const run = await call(`/remediations/${r.id}/launch`, { method: "POST", body: { mode: "run" } });
-    assert(run.status === 202 && seen.launches[1].job_type === "run" && run.data.status === "running", "onay + başarılı check sonrası sunucuya uygulandı");
+    assert((await call(`/remediations/${r.id}/launch`, { method: "POST", body: { mode: "run" } })).status === 403, "kişi bilgisi olmayan API token sunucuya uygulayamaz");
+    const run = await call(`/remediations/${r.id}/launch`, { method: "POST", body: { mode: "run" }, token: relay.token, headers: { "x-approved-by": "EnisA" } });
+    assert(run.status === 202 && seen.launches[1].job_type === "run" && run.data.status === "running" && /EnisA/.test(run.data.jobs[0].launchedBy),
+      "onay + başarılı check sonrası kişi tarafından sunucuya uygulandı");
 
     console.log("  [MCP]");
     const init = await rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } });
@@ -721,6 +728,9 @@ async function remediationSuite() {
     assert(JSON.parse(ls.result.content[0].text).items.length === 1, "MCP listeleme (sunucu filtresi)");
     const bad = await rpc("tools/call", { name: "morpheus_launch_remediation", arguments: { id: created2.id, mode: "run" } });
     assert(bad.result.isError && /onay/.test(bad.result.content[0].text), "MCP onaysız gerçek çalıştırmayı hata olarak döndürdü");
+    const badChk = await rpc("tools/call", { name: "morpheus_launch_remediation", arguments: { id: created2.id, mode: "check" } });
+    assert(badChk.result.isError && /onay/.test(badChk.result.content[0].text) && seen.launches.length === 2, "MCP onaysız playbook'u AAP'ye göndermedi (check dahil)");
+    assert(!tl.result.tools.some((t) => /approve/.test(t.name)), "MCP üzerinden onay aracı yok");
   } finally {
     mcp.kill();
     srv.kill();
