@@ -61,6 +61,8 @@ const Api = (() => {
     log: (id) => request(`/logs/${encodeURIComponent(id)}`),
     history: (q = {}) => request(`/history?${new URLSearchParams(Object.entries(q).filter(([, v]) => v))}`),
     historyItem: (id) => request(`/history/${encodeURIComponent(id)}`),
+    a2a: (q = {}) => request(`/a2a?${new URLSearchParams(Object.entries(q).filter(([, v]) => v))}`),
+    a2aItem: (id) => request(`/a2a/${encodeURIComponent(id)}`),
     agentSettings: () => request("/agent/settings"),
     saveAgentSettings: (s) => request("/agent/settings", { method: "POST", body: s }),
     conversations: () => request("/agent/conversations"),

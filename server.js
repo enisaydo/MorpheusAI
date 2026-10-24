@@ -30,6 +30,7 @@ const auth = require("./lib/auth");
 const remediation = require("./lib/remediation");
 const agent = require("./lib/agent");
 const mcpHub = require("./lib/mcp-hub");
+const a2a = require("./lib/a2a");
 const crypto = require("crypto");
 
 /* Servisler arası erişim (UnixAI OS köprüsü, MCP sunucusu): Authorization: Bearer <MORPHEUS_API_TOKEN>
@@ -283,6 +284,8 @@ async function handleApi(req, res, url) {
     case "POST /api/limits":
       try { return sendJson(res, 200, usage.saveLimits(json, who.user)); }
       catch (e) { return sendJson(res, 400, { error: e.message }); }
+    case "GET /api/a2a":
+      return sendJson(res, 200, a2a.query({ server: url.searchParams.get("server") || undefined, peer: url.searchParams.get("peer") || undefined }));
     case "GET /api/agent/settings":
       return sendJson(res, 200, { ...agent.settings(), defaults: agent.DEFAULTS });
     case "POST /api/agent/settings":
@@ -339,6 +342,10 @@ async function handleApi(req, res, url) {
   if (req.method === "GET" && (m = url.pathname.match(/^\/api\/history\/(.+)$/))) {
     const h = history.get(decodeURIComponent(m[1]));
     return h ? sendJson(res, 200, h) : sendJson(res, 404, { error: "Analiz kaydı bulunamadı" });
+  }
+  if (req.method === "GET" && (m = url.pathname.match(/^\/api\/a2a\/([0-9a-f]{16})$/))) {
+    const r = a2a.get(m[1]);
+    return r ? sendJson(res, 200, r) : sendJson(res, 404, { error: "Kayıt bulunamadı" });
   }
   if (req.method === "GET" && (m = url.pathname.match(/^\/api\/agent\/conversations\/([0-9a-f]{16})$/))) {
     const c = agent.conversation(m[1]);

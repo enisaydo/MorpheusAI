@@ -40,6 +40,7 @@
       <a href="#/standards" data-route="standards">Standartlar</a>
       <a href="#/usage" data-route="usage">Token Kullanımı</a>
       <a href="#/logs" data-route="logs">AI Logları</a>
+      <a href="#/a2a" data-route="a2a">UnixAI</a>
       <a href="#/agent" data-route="agent">Ajan &amp; MCP</a>
       <a href="#/settings" data-route="settings">Ayarlar</a>
     </nav>
@@ -302,6 +303,24 @@
             <label class="muted sm"><input type="checkbox" id="logAuto" /> 5 sn'de bir yenile</label>
           </div>
           <div class="table-wrap"><table class="table" id="logTable"></table></div>
+        </div>
+      </section>
+
+      <!-- ---------- AJANLAR ARASI (UnixAI) ---------- -->
+      <section class="view" data-view="a2a">
+        <div class="page-head">
+          <div><h1>UnixAI</h1><p>Yalnızca <b>MorpheusAI</b> ile <b>UnixAI ajanı</b> arasındaki konuşmalar. Kullanıcı sohbetlerinden ayrı tutulur; hazırlanan playbook'lar YAML olarak burada görünür.</p></div>
+          <div class="toolbar">
+            <select id="a2aPeer" class="input sm"><option value="">Tüm ajanlar</option></select>
+            <input id="a2aServer" class="input sm" placeholder="Sunucu adı" />
+            <button class="btn secondary" id="a2aRefresh">Yenile</button>
+          </div>
+        </div>
+        <div class="a2a-flow"><span class="a2a-node">MorpheusAI ajanı</span><span class="a2a-wire">⇄ MCP (/mcp, Bearer token) ⇄</span><span class="a2a-node peer">UnixAI ajanı</span>
+          <span class="muted sm">Konuşmayı bir kullanıcı (Ajan ekranı) veya karşı ajan başlatır; her soru-cevap burada kaydedilir.</span></div>
+        <div class="a2a-layout">
+          <div class="card a2a-list" id="a2aList"></div>
+          <div class="card a2a-detail" id="a2aDetail"></div>
         </div>
       </section>
 
