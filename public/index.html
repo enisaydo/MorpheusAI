@@ -40,6 +40,7 @@
       <a href="#/standards" data-route="standards">Standartlar</a>
       <a href="#/usage" data-route="usage">Token Kullanımı</a>
       <a href="#/logs" data-route="logs">AI Logları</a>
+      <a href="#/oplogs" data-route="oplogs">Log Dosyaları</a>
       <a href="#/a2a" data-route="a2a">UnixAI</a>
       <a href="#/agent" data-route="agent">Ajan &amp; MCP</a>
       <a href="#/settings" data-route="settings">Ayarlar</a>
@@ -303,6 +304,26 @@
             <label class="muted sm"><input type="checkbox" id="logAuto" /> 5 sn'de bir yenile</label>
           </div>
           <div class="table-wrap"><table class="table" id="logTable"></table></div>
+        </div>
+      </section>
+
+      <!-- ---------- LOG DOSYALARI ---------- -->
+      <section class="view" data-view="oplogs">
+        <div class="page-head">
+          <div><h1>Log Dosyaları</h1><p>Sistemin yaptığı her işlem, kategorisine göre <b>ayrı dosyaya</b> yazılır: <code id="olDir"></code>/&lt;kategori&gt;/&lt;kategori&gt;-YYYY-MM-DD.jsonl. Token ve parolalar maskelenir.</p></div>
+        </div>
+        <div class="card">
+          <div class="toolbar">
+            <select id="olCat" class="input sm"></select>
+            <select id="olDate" class="input sm"></select>
+            <input id="olQ" class="input sm" placeholder="Ara (sunucu, kayıt no, kullanıcı…)" />
+            <label class="muted sm"><input type="checkbox" id="olFailed" /> yalnızca hatalar</label>
+            <span class="toolbar-spacer"></span>
+            <span class="muted sm" id="olCount"></span>
+            <button class="btn secondary" id="olRefresh">Yenile</button>
+          </div>
+          <div class="muted sm mono" id="olFile"></div>
+          <div class="table-wrap"><table class="table" id="olTable"></table></div>
         </div>
       </section>
 

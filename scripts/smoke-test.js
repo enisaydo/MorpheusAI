@@ -740,6 +740,136 @@ async function remediationSuite() {
 
 
 /* ------------------------------------------------------------------ */
+/*  SCM teslimi: onay → Bitbucket commit → AAP proje sync → template    */
+/* ------------------------------------------------------------------ */
+function fakeBitbucketAndAap() {
+  const st = { files: {}, commits: [], deny: true, synced: [], templates: [], launches: [], jobs: {}, creds: [], updates: 0 };
+  const field = (body, name) => (body.match(new RegExp(`name="${name.replace(/[/.]/g, "\\$&")}"\\r\\n\\r\\n([\\s\\S]*?)\\r\\n--`)) || [])[1];
+  const bb = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      const send = (code, obj) => { res.writeHead(code, { "content-type": "application/json" }); res.end(JSON.stringify(obj)); };
+      if (req.headers.authorization !== "Bearer bb-token") return send(401, { errors: [{ message: "Authentication failed" }] });
+      const u = new URL(req.url, "http://x");
+      const base = "/rest/api/1.0/projects/OPS/repos/ansible-ops";
+      if (st.deny) return send(403, { errors: [{ message: "You are not permitted to access this resource" }] });
+      if (req.method === "GET" && u.pathname === `${base}/branches`) return send(200, { values: [{ displayId: "main" }] });
+      if (req.method === "GET" && u.pathname === `${base}/commits`) return send(200, { values: st.commits.slice(-1).map((c) => ({ id: c.id })) });
+      if (req.method === "PUT" && u.pathname.startsWith(`${base}/browse/`)) {
+        const p = decodeURIComponent(u.pathname.slice(`${base}/browse/`.length));
+        if (field(body, "branch") !== "main") return send(404, { errors: [{ message: "branch yok" }] });
+        if (st.files[p] != null && !field(body, "sourceCommitId")) return send(409, { errors: [{ message: "file already exists" }] });
+        const id = require("crypto").randomBytes(20).toString("hex");
+        st.files[p] = field(body, "content");
+        st.commits.push({ id, path: p, message: field(body, "message") });
+        return send(200, { id, displayId: id.slice(0, 11) });
+      }
+      send(404, { errors: [{ message: "yok" }] });
+    });
+  });
+  const aapSrv = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      const send = (code, obj) => { res.writeHead(code, { "content-type": "application/json" }); res.end(JSON.stringify(obj)); };
+      if (req.headers.authorization !== "Bearer aap-exec") return send(401, {});
+      const u = new URL(req.url, "http://x");
+      const p = u.pathname.replace(/^\/api\/v2\//, "");
+      let m;
+      if (p === "ping/") return send(200, { version: "4.5.0" });
+      if (req.method === "POST" && p === "projects/7/update/") { st.updates++; st.synced = Object.keys(st.files); return send(202, { project_update: 55, id: 55, status: "pending" }); }
+      if (req.method === "GET" && p === "project_updates/55/") return send(200, { id: 55, status: "successful" });
+      if (req.method === "GET" && p === "projects/7/playbooks/") return send(200, st.synced);
+      if (req.method === "GET" && p === "job_templates/") return send(200, { results: st.templates.filter((t) => t.name === u.searchParams.get("name")) });
+      if (req.method === "POST" && p === "job_templates/") {
+        const b = JSON.parse(body);
+        if (!st.synced.includes(b.playbook)) return send(400, { playbook: ["Playbook not found for project."] });
+        const t = { id: 300 + st.templates.length, ...b };
+        st.templates.push(t);
+        return send(201, t);
+      }
+      if (req.method === "POST" && (m = p.match(/^job_templates\/(\d+)\/credentials\/$/))) { st.creds.push(JSON.parse(body).id); res.writeHead(204); return res.end(); }
+      if (req.method === "POST" && (m = p.match(/^job_templates\/(\d+)\/launch\/$/))) {
+        const b = JSON.parse(body);
+        const id = 2000 + st.launches.length;
+        st.launches.push({ template: m[1], ...b });
+        st.jobs[id] = "pending";
+        return send(201, { job: id, id, status: "pending", ignored_fields: {} });
+      }
+      if ((m = p.match(/^jobs\/(\d+)\/$/))) return send(200, { id: Number(m[1]), status: st.jobs[m[1]] || "pending" });
+      send(404, {});
+    });
+  });
+  return { bb, aapSrv, st };
+}
+
+async function scmSuite() {
+  console.log("\n[SCM teslimi — onay → Bitbucket → AAP proje sync → job template → check]");
+  const { bb, aapSrv, st } = fakeBitbucketAndAap();
+  await new Promise((r) => bb.listen(3985, "127.0.0.1", r));
+  await new Promise((r) => aapSrv.listen(3986, "127.0.0.1", r));
+  const base = "http://127.0.0.1:3984";
+  const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "morpheus-logs-"));
+  const srv = startServer(3984, {
+    MORPHEUS_MODE: "demo", AAP_URL: "http://127.0.0.1:3986", AAP_TOKEN: "aap-exec", AAP_API_PREFIX: "/api/v2", AAP_POLL_MS: "100",
+    AAP_PROJECT_ID: "7", AAP_INVENTORY_ID: "3", AAP_CREDENTIAL_IDS: "11",
+    BITBUCKET_URL: "http://127.0.0.1:3985", BITBUCKET_TOKEN: "bb-token", BITBUCKET_PROJECT: "OPS", BITBUCKET_REPO: "ansible-ops", BITBUCKET_BRANCH: "main",
+    LOG_DIR: logDir, LOG_FILE: "true", MORPHEUS_API_TOKEN: "",
+  });
+  const call = (p, method = "GET", body) =>
+    fetch(base + "/api" + p, { method, headers: { "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined })
+      .then(async (r) => ({ status: r.status, data: await r.json().catch(() => null) }));
+  const today = new Date().toISOString().slice(0, 10);
+  const logRows = (cat) => { try { return fs.readFileSync(path.join(logDir, cat, `${cat}-${today}.jsonl`), "utf8").split("\n").filter(Boolean).map(JSON.parse); } catch { return []; } };
+  try {
+    await waitFor(base);
+    const cfg = (await call("/remediations")).data.config;
+    assert(cfg.delivery === "scm" && cfg.bitbucket.configured && cfg.bitbucket.repo === "OPS/ansible-ops", "teslim: Bitbucket → AAP template (otomatik algılandı)");
+    const r = (await call("/remediations", "POST", { server: { name: "rhel-db01", target: "rhel-db01.corp.local" },
+      finding: { title: "/u01 doluluk", priority: "P1", commands: ["df -h /u01"] }, source: "unixai-os" })).data;
+    assert(r.status === "generated" && !st.commits.length && !st.launches.length, "playbook üretildi; onay öncesi Bitbucket'a/AAP'ye hiçbir şey gitmedi");
+
+    const a1 = await call(`/remediations/${r.id}/approve`, "POST", {});
+    assert(a1.status === 200 && a1.data.status === "publish_failed" && /403/.test(a1.data.scm.error) && !st.launches.length,
+      "Bitbucket yetki hatası kayda yazıldı (publish_failed), AAP'de iş başlatılmadı");
+    assert(logRows("bitbucket").some((x) => x.status === 403 && x.request?.headers?.authorization?.startsWith("Bearer bb-t…")),
+      "logs/bitbucket/: 403 çağrısı token maskeli kaydedildi");
+    assert(logRows("duzeltme").some((x) => /hazırlığı başarısız/.test(x.action) && x.ok === false && x.id === r.id), "logs/duzeltme/: hata olayı kaydedildi");
+
+    st.deny = false;
+    const p = await call(`/remediations/${r.id}/publish`, "POST", {});
+    const file = `playbooks/unixai/rhel-db01/${r.id}.yml`;
+    assert(p.status === 200 && st.files[file]?.includes('hosts: "{{ target_host }}"') && /Onaylayan: /.test(st.commits[0].message),
+      `Tekrar dene: playbook Bitbucket'a commit edildi (${file})`);
+    const t = st.templates[0];
+    assert(st.updates === 1 && t && t.playbook === file && t.project === 7 && t.inventory === 3 && t.ask_limit_on_launch && t.ask_job_type_on_launch && st.creds[0] === 11,
+      "AAP projesi sync edildi → job template playbook yolu, envanter ve credential ile oluşturuldu");
+    const l = st.launches[0];
+    assert(p.data.status === "check_running" && l.template === String(t.id) && l.job_type === "check" && l.limit === "rhel-db01.corp.local" && !l.extra_vars.remediation_tasks_b64,
+      "ardından yeni template ile check (dry-run) başlatıldı");
+    assert(p.data.scm.commit && p.data.scm.url.includes("/projects/OPS/repos/ansible-ops/browse/") && p.data.aapTemplate.id === String(t.id), "kayıtta commit, Bitbucket bağlantısı ve AAP template bilgisi var");
+
+    st.jobs[2000] = "successful";
+    await new Promise((res) => setTimeout(res, 3100));
+    const run = await call(`/remediations/${r.id}/launch`, "POST", { mode: "run" });
+    assert(run.status === 202 && st.launches[1].job_type === "run" && st.launches[1].template === String(t.id), "check başarılı → aynı template ile sunucuya uygulandı");
+
+    for (const cat of ["islem", "duzeltme", "bitbucket", "aap"]) assert(logRows(cat).length > 0, `ayrı log dosyası: logs/${cat}/${cat}-${today}.jsonl`);
+    assert(logRows("islem").some((x) => /Playbook onaylandı/.test(x.action) && x.status === 200), "logs/islem/: onay işlemi (kim, sonuç) kaydedildi");
+    assert(logRows("aap").some((x) => x.kind === "job-template-create") && logRows("aap").some((x) => x.kind === "project-sync"), "logs/aap/: proje sync ve template oluşturma çağrıları");
+    const ol = (await call("/oplogs")).data;
+    const dz = (await call(`/oplogs/duzeltme?date=${today}`)).data;
+    assert(ol.categories.some((c) => c.category === "bitbucket" && c.files.length) && dz.items.length >= 5 && dz.items[0].time >= dz.items.at(-1).time,
+      "arayüz: log dosyaları listelendi ve okundu (en yeni önce)");
+  } finally {
+    srv.kill();
+    bb.close();
+    aapSrv.close();
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /*  Barındırılan MCP sunucusu (/mcp)                                   */
 /* ------------------------------------------------------------------ */
 async function mcpHostSuite() {
@@ -790,6 +920,7 @@ async function mcpHostSuite() {
     await aapSuite();
     await ldapSuite();
     await remediationSuite();
+    await scmSuite();
     await mcpHostSuite();
     console.log("\nSmoke test başarılı.");
   } catch (e) {

@@ -31,7 +31,7 @@ const activeRules = (scope) => allRules().filter((r) => (!scope || r.scope === s
 /* ================================================================== */
 /*  Router                                                             */
 /* ================================================================== */
-const ROUTES = ["dashboard", "template", "workflow", "oracle", "history", "remediations", "a2a", "agent", "standards", "usage", "logs", "settings"];
+const ROUTES = ["dashboard", "template", "workflow", "oracle", "history", "remediations", "a2a", "agent", "standards", "usage", "logs", "oplogs", "settings"];
 
 function route() {
   const [name, arg] = location.hash.replace(/^#\/?/, "").split("/");
@@ -43,6 +43,7 @@ function route() {
   if (r === "workflow" && arg) loadWorkflow(decodeURIComponent(arg));
   if (r === "oracle") setTimeout(() => $("#chatText").focus(), 50);
   if (r === "logs") loadLogs();
+  if (r === "oplogs") loadOplogs();
   if (r === "usage") loadUsage();
   if (r === "history") loadHistory();
   if (r === "agent") loadAgentPage();
@@ -1178,8 +1179,87 @@ const REM_STATUS = {
   generated: ["Onay bekliyor", "gold"], approved: ["Onaylı", "blue"], check_running: ["Check çalışıyor", "blue"],
   check_ok: ["Check başarılı", "green"], check_failed: ["Check hatalı", "red"], running: ["Uygulanıyor", "blue"],
   applied: ["Uygulandı", "green"], failed: ["Hatalı", "red"], rejected: ["Reddedildi", ""],
+  publishing: ["Bitbucket'a gönderiliyor", "blue"], publish_failed: ["Bitbucket/AAP hazırlığı hatalı", "red"],
 };
 const remTag = (s) => { const [l, c] = REM_STATUS[s] || [s, ""]; return `<span class="label ${c}">${esc(l)}</span>`; };
+/** Teslim adımları: Bitbucket commit → AAP proje sync → job template → check */
+function deliveryHtml(r, cfg) {
+  const scm = r.delivery === "scm" || (!r.delivery && cfg.delivery === "scm");
+  if (!scm) return r.approval || cfg.delivery !== "runner" ? "" : `<div class="muted sm">Teslim: runner job template #${esc(cfg.runnerTemplate || "?")} (task'lar extra_vars ile)</div>`;
+  const s = r.scm || {}, bb = cfg.bitbucket || {};
+  const failedAt = s.state === "failed" ? s.step : null;
+  const st = (done, key) => (done ? "ok" : failedAt === key ? "bad" : s.state === "pushing" && s.step === key ? "run" : "");
+  const step = (cls, title, detail) => `<li class="dstep ${cls}"><b>${title}</b>${detail ? `<span class="muted sm"> ${detail}</span>` : ""}</li>`;
+  return `<div class="delivery">
+    <div class="sub-h">Teslim: Bitbucket → AAP <span class="muted sm">(onaydan sonra)</span></div>
+    <ol class="dsteps">
+      ${step(st(Boolean(s.pushedAt), "bitbucket"), "Bitbucket'a commit",
+        s.pushedAt ? `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.repo)}@${esc(s.branch)} · ${esc(s.path)}</a>${s.commit ? ` · <code>${esc(String(s.commit).slice(0, 12))}</code>` : ""}`
+        : `${esc(bb.repo || "?")}@${esc(bb.branch || "?")} · ${esc(bb.path || "")}/${esc(r.server.name)}/${esc(r.id)}.yml`)}
+      ${step(st(Boolean(s.projectUpdate), "aap-sync"), "AAP projesi sync", s.projectUpdate ? `güncelleme #${esc(s.projectUpdate)}` : `proje #${esc(cfg.aapProject || "?")}`)}
+      ${step(st(Boolean(r.aapTemplate), "aap-template"), "Job template", r.aapTemplate ? `${r.aapTemplate.url ? `<a href="${esc(r.aapTemplate.url)}" target="_blank" rel="noopener">${esc(r.aapTemplate.name)}</a>` : esc(r.aapTemplate.name)} (#${esc(r.aapTemplate.id)})` : "")}
+      ${step(r.jobs.some((j) => j.mode === "check") ? (r.jobs.some((j) => j.mode === "check" && j.status === "successful") ? "ok" : "run") : "", "Check (dry-run)", "")}
+    </ol>
+    ${s.state === "failed" ? `<div class="alert danger"><b>Hazırlık başarısız (${esc(s.step)}):</b> ${esc(s.error)}</div>` : ""}
+    ${r.approval && !r.rejected && !r.aapTemplate && s.state !== "pushing" ? `<button class="btn primary sm" id="remPublish">${s.state === "failed" ? "Tekrar dene" : "Bitbucket'a gönder"}</button>` : ""}
+    ${cfg.scmMissing?.length ? `<div class="muted sm">.env eksik: ${cfg.scmMissing.map(esc).join(", ")}</div>` : ""}
+  </div>`;
+}
+
+/* ================================================================== */
+/*  Log dosyaları (her kategori ayrı dosya)                            */
+/* ================================================================== */
+State.ol = { cat: "duzeltme", date: "", cats: [] };
+
+async function loadOplogs() {
+  try {
+    const d = await Api.oplogs();
+    State.ol.cats = d.categories;
+    $("#olDir").textContent = d.dir;
+    $("#olCat").innerHTML = d.categories.map((c) => `<option value="${esc(c.category)}">${esc(c.label)} · ${c.files.length} dosya</option>`).join("");
+    $("#olCat").value = State.ol.cat;
+    fillOplogDates();
+    await loadOplogRows();
+  } catch (e) { $("#olTable").innerHTML = `<tr><td>${errorView(e)}</td></tr>`; }
+}
+
+function fillOplogDates() {
+  const c = State.ol.cats.find((x) => x.category === State.ol.cat);
+  const dates = (c?.files || []).map((f) => f.date);
+  const today = new Date().toISOString().slice(0, 10);
+  if (!dates.includes(today)) dates.unshift(today);
+  if (!dates.includes(State.ol.date)) State.ol.date = dates[0];
+  $("#olDate").innerHTML = dates.map((d) => `<option>${esc(d)}</option>`).join("");
+  $("#olDate").value = State.ol.date;
+  $("#olFile").textContent = `${c?.dir || ""}/${State.ol.cat}-${State.ol.date}.jsonl`;
+}
+
+async function loadOplogRows() {
+  try {
+    const r = await Api.oplog(State.ol.cat, { date: State.ol.date, q: $("#olQ").value.trim(), failed: $("#olFailed").checked ? "1" : "" });
+    $("#olCount").textContent = `${r.items.length} / ${r.total} kayıt`;
+    $("#olTable").innerHTML = `<tr><th>Zaman</th><th>İşlem</th><th>Kim</th><th>Sonuç</th><th>Süre</th><th></th></tr>` + (r.items.map((e) => {
+      const what = e.action || `${e.kind || ""} · ${e.method || ""} ${e.host || ""}${e.path || ""}`;
+      const code = typeof e.status === "number" ? e.status : typeof e.exitCode === "number" ? `çıkış ${e.exitCode}` : null;
+      const res = e.ok === false ? `<span class="label red">${esc(code ?? "hata")}</span>` : `<span class="label green">${esc(code ?? "ok")}</span>`;
+      return `<tr class="${e.ok === false ? "row-err" : ""}"><td class="mono t-sub">${esc(fmtTime(e.time))}</td>
+        <td>${esc(what)}${e.error ? `<div class="t-sub status-err">${esc(e.error)}</div>` : ""}</td>
+        <td class="t-sub">${esc(e.user || e.service || "")}</td><td>${res}</td><td class="mono t-sub">${e.durationMs != null ? `${esc(e.durationMs)} ms` : ""}</td>
+        <td><details><summary class="link sm">ayrıntı</summary><pre class="code-block ol-json">${esc(JSON.stringify(e, null, 2))}</pre></details></td></tr>`;
+    }).join("") || `<tr><td colspan="6" class="muted">Bu dosyada kayıt yok.</td></tr>`);
+  } catch (e) { $("#olTable").innerHTML = `<tr><td>${errorView(e)}</td></tr>`; }
+}
+
+function bindOplogs() {
+  $("#olCat").onchange = (e) => { State.ol.cat = e.target.value; State.ol.date = ""; fillOplogDates(); loadOplogRows(); };
+  $("#olDate").onchange = (e) => { State.ol.date = e.target.value; fillOplogDates(); loadOplogRows(); };
+  $("#olFailed").onchange = () => loadOplogRows();
+  let t;
+  $("#olQ").oninput = () => { clearTimeout(t); t = setTimeout(loadOplogRows, 300); };
+  $("#olRefresh").onclick = () => loadOplogs();
+}
+
+
 const JOB_STATUS = { successful: "status-ok", failed: "status-err", error: "status-err", canceled: "status-err" };
 State.remFilter = "";
 State.remTimer = null;
@@ -1188,7 +1268,7 @@ async function loadRemediations() {
   try {
     const r = await Api.remediations({ status: State.remFilter, server: $("#remServer").value.trim() });
     const c = (State.remCfg = r.config);
-    $("#remConfig").textContent = `Min. uyum ${c.minScore} · ${c.autoApprove ? "otomatik onay AÇIK" : "onay gerekli"} · ${c.requireCheck ? "önce check zorunlu" : "check opsiyonel"} · ${c.aap ? `runner #${c.runnerTemplate || "tanımsız"}` : "AAP bağlı değil"}`;
+    $("#remConfig").textContent = `Min. uyum ${c.minScore} · ${c.autoApprove ? "otomatik onay AÇIK" : "onay gerekli"} · ${c.requireCheck ? "önce check zorunlu" : "check opsiyonel"} · ${!c.aap ? "AAP bağlı değil" : c.delivery === "scm" ? `teslim: Bitbucket ${c.bitbucket?.repo || "?"}@${c.bitbucket?.branch || "?"} → AAP proje #${c.aapProject || "?"} → template` : `runner #${c.runnerTemplate || "tanımsız"}`}`;
     const pending = r.items.filter((x) => x.status === "generated").length;
     $("#remCount").textContent = pending ? String(pending) : "";
     $("#remTable").innerHTML = `<tr><th>Zaman</th><th>Sunucu</th><th>Bulgu</th><th>Uyum</th><th>Durum</th><th>Son AAP işi</th><th>Kaynak</th></tr>` +
@@ -1222,6 +1302,7 @@ async function showRemediation(id) {
       </div>
     </div>
     ${r.runnable ? "" : `<div class="alert danger">Bu playbook runner ile çalıştırılamaz: ${esc(r.runnerError)}</div>`}
+    ${deliveryHtml(r, cfg)}
     <div class="tabs">
       <button class="on" data-rtab="pb">Playbook</button>
       <button data-rtab="finding">Bulgu (UnixAI)</button>
@@ -1250,9 +1331,9 @@ async function showRemediation(id) {
     <div class="result-actions">
       ${r.rejected ? `<span class="muted">Reddedildi: ${esc(r.rejected.by)}${r.rejected.reason ? ` — ${esc(r.rejected.reason)}` : ""}</span>` : `
         ${r.approval ? `<span class="label blue">Onaylayan: ${esc(r.approval.by)}</span>
-          <button class="btn secondary" id="remCheck" ${!r.runnable || active ? "disabled" : ""}>Check'i tekrar çalıştır (dry-run)</button>`
+          <button class="btn secondary" id="remCheck" ${!r.runnable || active || (r.delivery === "scm" && !r.aapTemplate) ? "disabled" : ""}>Check'i tekrar çalıştır (dry-run)</button>`
         : `<span class="muted sm">Bu playbook onayınızı bekliyor; onaydan önce AAP'de hiçbir şey çalıştırılmaz.</span>
-          <button class="btn primary" id="remApprove" ${!r.runnable ? "disabled" : ""}>Onayla${cfg.checkOnApprove !== false ? " (AAP'de check başlar)" : ""}</button>`}
+          <button class="btn primary" id="remApprove" ${!r.runnable ? "disabled" : ""}>Onayla${cfg.delivery === "scm" ? " (Bitbucket → AAP template → check)" : cfg.checkOnApprove !== false ? " (AAP'de check başlar)" : ""}</button>`}
         <button class="btn primary" id="remRun" ${!r.runnable || active || !r.approval || (cfg.requireCheck !== false && !checkOk) ? "disabled" : ""} title="${!r.approval ? "Önce onaylayın" : cfg.requireCheck !== false && !checkOk ? "Önce başarılı bir check çalıştırması gerekli" : ""}">Sunucuya uygula</button>
         <label class="muted sm">${r.disruptive ? `<input type="checkbox" id="remDisruptive" /> Kesinti riskli adımlara izin ver` : ""}</label>
         <span class="toolbar-spacer"></span>
@@ -1286,7 +1367,8 @@ async function showRemediation(id) {
   };
   $("#remCopy").onclick = () => copyText(r.playbook);
   act("#remCheck", () => Api.launchRem(r.id, "check"), "Check (dry-run) çalıştırması AAP'de başlatıldı");
-  act("#remApprove", () => Api.approveRem(r.id), "Onaylandı; check (dry-run) AAP'de başlatıldı");
+  act("#remApprove", () => Api.approveRem(r.id), cfg.delivery === "scm" ? "Onaylandı; Bitbucket → AAP hazırlığı yapıldı (sonuç pencerede)" : "Onaylandı; check (dry-run) AAP'de başlatıldı");
+  act("#remPublish", () => Api.publishRem(r.id), "Bitbucket'a gönderildi, AAP template'i hazırlandı");
   act("#remRun", () => Api.launchRem(r.id, "run", Boolean($("#remDisruptive")?.checked)), "Playbook sunucuya uygulanıyor (AAP)");
   act("#remReject", () => Api.rejectRem(r.id, prompt("Ret nedeni (opsiyonel):") || ""), "Reddedildi");
   if (active) State.remTimer = setTimeout(() => !$("#modal").classList.contains("hidden") && showRemediation(r.id), 5000);
@@ -1686,6 +1768,7 @@ function bindEvents() {
   };
   $("#logRefresh").onclick = loadLogs;
   bindAgentPage();
+  bindOplogs();
   bindA2A();
   // düzeltmeler
   $("#remRefresh").onclick = loadRemediations;

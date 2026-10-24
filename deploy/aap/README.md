@@ -24,7 +24,37 @@ Ayarlar → MorpheusAI (veya Ajan & MCP → morpheusai bağlantısı) alanına g
 ile iletir; kayıtta `EnisA (unixai üzerinden)` gibi görünür. Bu token MCP'de onay aracı açmaz — onay yalnızca insan eliyle verilir.
 
 
-## Bir kerelik AAP kurulumu
+## Teslim: Bitbucket → AAP template (önerilen, `REMEDIATION_DELIVERY=scm`)
+
+AAP, playbook dosyası projenin SCM reposunda olmadan job template oluşturamaz. Bu yüzden onaydan sonra sıra şöyledir:
+
+1. Playbook Bitbucket'a commit edilir: `BITBUCKET_PATH/<sunucu>/<kayıt>.yml` (commit mesajında onaylayan kişi)
+2. AAP projesi Bitbucket'tan güncellenir (`POST projects/<AAP_PROJECT_ID>/update/`, bitmesi beklenir)
+3. Kayda özel job template oluşturulur/güncellenir: `UnixAI | <sunucu> | <kayıt>` (envanter, credential, Prompt on launch: Limit/Variables/Job type)
+4. Check (dry-run) başlar; başarılıysa bir kişi **Sunucuya uygula** der
+
+Bir adım başarısız olursa (ör. Bitbucket 403) hata kayda ve `logs/duzeltme/` dosyasına yazılır; düzeltip
+**Tekrar dene** (MorpheusAI veya UnixAI ekranı) ile kaldığı yerden devam edilir.
+
+Gerekenler:
+- Bitbucket token'ı: repoda **Repository write** (Server/DC: HTTP access token; Cloud: repository access token veya app password)
+- AAP'de bu repoya bağlı bir **proje** (SCM branch = `BITBUCKET_BRANCH`)
+- AAP token'ı: projede **Update**, envanter/credential/projede **Use**, organizasyonda **Job Template Admin** (template oluşturma) ve **Execute**
+
+```env
+BITBUCKET_URL=https://bitbucket.kurum.local
+BITBUCKET_TOKEN=<HTTP access token>
+BITBUCKET_PROJECT=OPS
+BITBUCKET_REPO=ansible-ops
+BITBUCKET_BRANCH=main
+AAP_PROJECT_ID=12
+AAP_INVENTORY_ID=3
+AAP_CREDENTIAL_IDS=7
+```
+
+Bağlantıyı denemek için: `curl -X POST http://localhost:3000/api/bitbucket/test`
+
+## Bir kerelik AAP kurulumu (runner yöntemi, `REMEDIATION_DELIVERY=runner`)
 
 1. `unixai_remediation_runner.yml` dosyasını AAP'nin kullandığı bir Git projesine koyun (örn. `ansible-ops` reposu) ve projeyi senkronlayın.
 2. **Job template** oluşturun:

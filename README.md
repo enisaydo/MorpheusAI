@@ -138,12 +138,22 @@ Genel Bakış'taki "son skor" bu kayıtlardan okunur; servis yeniden başlatıl�
 
 ## Loglar
 
-GenAI ve AAP'ye yapılan her çağrı:
-- arayüzde **AI Logları** ekranında (son 200 kayıt),
-- `logs/ai-YYYY-MM-DD.jsonl` dosyasında (container'da `/opt/morpheus-ai/logs` dizinine bağlı),
-- `journalctl -u morpheus-ai` çıktısında tek satırlık özet olarak
+Sistemin yaptığı her işlem, kategorisine göre **ayrı dosyaya** yazılır (`logs/<kategori>/<kategori>-YYYY-MM-DD.jsonl`,
+container'da `/opt/morpheus-ai/logs` dizinine bağlı; `LOG_RETENTION_DAYS` gün saklanır):
 
-görünür. Parola ve secret'lar tamamen, token/client-id'ler ilk 4 karakter dışında maskelenir.
+| Dosya | İçerik |
+|---|---|
+| `logs/islem/` | arayüz/API'den yapılan her değişiklik: kim, ne, sonuç (HTTP kodu), hata |
+| `logs/giris/` | LDAP giriş denemeleri |
+| `logs/duzeltme/` | düzeltme akışı: bulgu alındı → playbook üretildi → onay → Bitbucket commit → AAP proje sync → template → check/run → sonuç |
+| `logs/bitbucket/` | Bitbucket REST çağrıları (istek/cevap) |
+| `logs/aap/` | AAP REST çağrıları (proje sync, job template, launch, durum) |
+| `logs/genai/` | TMS token ve GPT çağrıları |
+| `logs/mcp-istemci/`, `logs/mcp-sunucu/` | giden / gelen MCP çağrıları |
+| `logs/ajan/`, `logs/ajanlar-arasi/` | ajanın araç adımları, UnixAI ⇄ MorpheusAI konuşmaları |
+
+Arayüzde **Log Dosyaları** ekranından kategori/tarih seçip arayabilirsiniz; `journalctl -u morpheus-ai` tek satırlık özetleri gösterir.
+Parola ve secret'lar tamamen, token/client-id'ler ilk 4 karakter dışında maskelenir.
 
 ## AI bağlantısı (GenAI gateway)
 

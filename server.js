@@ -22,6 +22,8 @@ const analyzer = require("./lib/analyzer");
 const genai = require("./lib/genai");
 const aap = require("./lib/aap");
 const logger = require("./lib/logger");
+const oplog = require("./lib/oplog");
+const bitbucket = require("./lib/bitbucket");
 const prompts = require("./lib/prompts");
 const usage = require("./lib/usage");
 const history = require("./lib/history");
@@ -142,6 +144,7 @@ function remember(kind, json, result, who) {
 /* ------------------------------------------------------------------ */
 
 function sendJson(res, code, data) {
+  if (code >= 400 && data && typeof data === "object") res._err = data.error || data.message || null;
   res.writeHead(code, { "Content-Type": MIME[".json"] });
   res.end(JSON.stringify(data));
 }
@@ -233,9 +236,11 @@ async function handleApi(req, res, url) {
       try {
         const user = await auth.authenticate(json.username, json.password, clientIp(req));
         const s = auth.createSession(user);
+        oplog.log("giris", "Giriş başarılı", { user: user.username, ip: clientIp(req), admin: user.isAdmin });
         res.setHeader("Set-Cookie", auth.cookieHeader(s.value, s.maxAge));
         return sendJson(res, 200, { enabled: true, user: { username: user.username, displayName: user.displayName, isAdmin: user.isAdmin } });
       } catch (e) {
+        oplog.log("giris", "Giriş başarısız", { user: String(json.username || "").slice(0, 80), ip: clientIp(req), error: e.message });
         return sendJson(res, e.status || 500, { error: e.message });
       }
     }
@@ -257,6 +262,7 @@ async function handleApi(req, res, url) {
   const ai = MODE === "genai";
   const who = whoIs(req, session);
   if (api) who.isApi = true;
+  req._who = who;
 
   switch (route) {
     case "GET /api/health":
@@ -312,6 +318,12 @@ async function handleApi(req, res, url) {
       return sendJson(res, 200, { items: remediation.list({ status: url.searchParams.get("status") || undefined, server: url.searchParams.get("server") || undefined }), config: remediation.config() });
     case "POST /api/remediations":
       return sendJson(res, 201, await remediation.create(json, STANDARDS, who, { ai: MODE === "genai" }));
+    case "GET /api/oplogs":
+      if (session && !session.isAdmin) return sendJson(res, 403, { error: "Log dosyaları için yönetici yetkisi gerekiyor" });
+      return sendJson(res, 200, { dir: oplog.LOG_DIR, categories: oplog.files() });
+    case "POST /api/bitbucket/test":
+      try { return sendJson(res, 200, await bitbucket.test()); }
+      catch (e) { return sendJson(res, 200, { ok: false, error: e.message, ...bitbucket.status() }); }
     case "GET /api/logs":
       return sendJson(res, 200, logger.list({ limit: Number(url.searchParams.get("limit") || 100), service: url.searchParams.get("service") || undefined }));
     case "POST /api/analyze/template":
@@ -363,7 +375,7 @@ async function handleApi(req, res, url) {
     if (req.method === "DELETE" && !m[2]) { mcpHub.deleteConnection(m[1]); return sendJson(res, 200, { ok: true }); }
     if (req.method === "POST" && m[2]) return sendJson(res, 200, await mcpHub.testConnection(m[1]));
   }
-  if ((m = url.pathname.match(/^\/api\/remediations\/([\w-]+)(?:\/(approve|reject|launch|jobs\/(\d+)\/stdout))?$/))) {
+  if ((m = url.pathname.match(/^\/api\/remediations\/([\w-]+)(?:\/(approve|reject|launch|publish|jobs\/(\d+)\/stdout))?$/))) {
     const id = m[1], sub = m[2];
     if (req.method === "GET" && !sub) {
       const r = await remediation.get(id);
@@ -381,10 +393,25 @@ async function handleApi(req, res, url) {
       const by = human ? { ...who, user: `${human} (${session.username} üzerinden)`, via: session.username } : { ...who, via: "MorpheusAI arayüzü" };
       return sendJson(res, 200, sub === "approve" ? await remediation.approve(id, by) : remediation.reject(id, by, json.reason));
     }
+    if (req.method === "POST" && sub === "publish") {
+      if (who.isApi && !human) return sendJson(res, 403, { error: "Bitbucket'a gönderim yalnızca bir kişi tarafından başlatılabilir" });
+      const by = human ? { ...who, user: `${human} (${session.username} üzerinden)` } : who;
+      await remediation.publish(id, by);
+      const r = await remediation.get(id);
+      if (r.aapTemplate?.id && !r.jobs.length && remediation.config().checkOnApprove) {
+        try { await remediation.launch(id, { mode: "check" }, { ...by, human: true }); } catch {}
+      }
+      return sendJson(res, 200, await remediation.get(id));
+    }
     if (req.method === "POST" && sub === "launch") {
       const by = human ? { ...who, user: `${human} (${session.username} üzerinden)`, human: true } : { ...who, human: !who.isApi };
       return sendJson(res, 202, await remediation.launch(id, { mode: json.mode === "run" ? "run" : "check", allowDisruptive: json.allowDisruptive === true }, by));
     }
+  }
+  if (req.method === "GET" && (m = url.pathname.match(/^\/api\/oplogs\/([a-z][a-z0-9-]{1,30})$/))) {
+    if (session && !session.isAdmin) return sendJson(res, 403, { error: "Log dosyaları için yönetici yetkisi gerekiyor" });
+    return sendJson(res, 200, oplog.read(m[1], url.searchParams.get("date") || undefined,
+      { q: url.searchParams.get("q"), failed: url.searchParams.get("failed") === "1", limit: url.searchParams.get("limit") }));
   }
   if (req.method === "GET" && (m = url.pathname.match(/^\/api\/logs\/(.+)$/))) {
     const e = logger.get(decodeURIComponent(m[1]));
@@ -419,11 +446,34 @@ async function handleMcp(req, res) {
   let msg;
   try { msg = JSON.parse(await readBody(req)); } catch { return reply(400, { jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } }); }
   const ai = MODE === "genai";
-  const out = Array.isArray(msg)
-    ? (await Promise.all(msg.map((x) => mcpHub.handleRpc(x, principal, ai)))).filter(Boolean)
-    : await mcpHub.handleRpc(msg, principal, ai);
+  const one = async (x) => {
+    const t0 = Date.now();
+    const r = await mcpHub.handleRpc(x, principal, ai);
+    if (x?.method && !String(x.method).startsWith("notifications/")) {
+      const isErr = Boolean(r?.error || r?.result?.isError);
+      oplog.log("mcp-sunucu", x.method === "tools/call" ? `Araç çağrıldı: ${x.params?.name}` : x.method, {
+        user: principal.client, token: principal.tokenId, ip: clientIp(req), method: x.method, tool: x.params?.name || null,
+        args: x.method === "tools/call" ? logger.maskBody(JSON.stringify(x.params?.arguments || {})) : undefined,
+        durationMs: Date.now() - t0, ok: !isErr, error: isErr ? (r?.error?.message || String(r?.result?.content?.[0]?.text || "").slice(0, 300)) : null });
+    }
+    return r;
+  };
+  const out = Array.isArray(msg) ? (await Promise.all(msg.map(one))).filter(Boolean) : await one(msg);
   if (!out || (Array.isArray(out) && !out.length)) return reply(202);
   return reply(200, out);
+}
+
+/** İşlem kaydı için okunur ad */
+function actionLabel(method, p) {
+  const m = p.match(/^\/api\/remediations\/([\w-]+)\/(approve|reject|launch|publish)$/);
+  if (m) return { approve: "Playbook onaylandı", reject: "Playbook reddedildi", launch: "AAP çalıştırması istendi", publish: "Bitbucket'a gönderim istendi" }[m[2]] + ` (${m[1]})`;
+  const map = { "/api/remediations": "Düzeltme kaydı oluşturuldu (UnixAI bulgusu)", "/api/auth/logout": "Çıkış", "/api/agent/chat": "Ajana soru soruldu",
+    "/api/mcp/tokens": "MCP token'ı üretildi", "/api/mcp/origins": "MCP izinli alanlar kaydedildi", "/api/mcp/connections": "MCP bağlantısı kaydedildi",
+    "/api/agent/settings": "Ajan ayarları kaydedildi", "/api/limits": "Token limitleri kaydedildi", "/api/prompts": "Sistem mesajı kaydedildi",
+    "/api/analyze/template": "Template analizi", "/api/analyze/workflow": "Workflow analizi", "/api/bitbucket/test": "Bitbucket bağlantı testi" };
+  if (map[p]) return map[p];
+  if (method === "DELETE") return `Silindi: ${p.replace(/^\/api\//, "")}`;
+  return `${method} ${p}`;
 }
 
 function serveStatic(req, res, url) {
@@ -443,6 +493,11 @@ function serveStatic(req, res, url) {
 const server = http
   .createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
+    const t0 = Date.now();
+    if (url.pathname.startsWith("/api/") && req.method !== "GET" && req.method !== "OPTIONS" && url.pathname !== "/api/auth/login")
+      res.on("finish", () => oplog.log("islem", actionLabel(req.method, url.pathname), {
+        user: req._who?.user || null, ip: clientIp(req), method: req.method, path: url.pathname, status: res.statusCode,
+        api: Boolean(req._who?.isApi) || undefined, durationMs: Date.now() - t0, ok: res.statusCode < 400, error: res._err || null }));
     try {
       if (url.pathname === "/mcp") return await handleMcp(req, res);
       if (url.pathname.startsWith("/api/")) return await handleApi(req, res, url);
