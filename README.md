@@ -142,6 +142,7 @@ MorpheusAI ajanı, açık kaynak Pixel Agents ofisinde UnixAI ajanıyla birlikte
 (playbook yazarken, onay beklerken izin balonu). Kurulum ve köprü: UnixAI-OS deposunda `integrations/pixel-office/`.
 Köprü gerekmez: `.env`'de `PIXEL_OFFICE=true` olunca MorpheusAI aynı makinedeki Pixel Agents ofisine olayları
 doğrudan gönderir (token `~/.pixel-agents/` altından otomatik bulunur). Durum: `GET /api/pixel/status`.
+Tek komutla kurulum: `sudo bash deploy/pixel-office/kur.sh --app morpheus` (ofisi kurar, `.env`'i ayarlar, servisi yeniden başlatır).
 
 ## Ajan izleme arayüzü (Langfuse)
 
