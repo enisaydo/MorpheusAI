@@ -136,6 +136,12 @@ Genel Bakış'taki "son skor" bu kayıtlardan okunur; servis yeniden başlatıl�
 - Kullanıcı adı ilk girişte arayüzde sorulur ve `X-Morpheus-User` header'ı ile gönderilir (doğrulanmaz). Önde SSO yapan bir proxy varsa `.env`'de `USER_HEADER` ile onun header'ı kullanılabilir.
 - Gateway `usage` alanı döndürmezse token sayısı karakter sayısından tahmin edilir ve raporda "≈" ile işaretlenir.
 
+## Pixel Office
+
+MorpheusAI ajanı, açık kaynak Pixel Agents ofisinde UnixAI ajanıyla birlikte karakter olarak görünür
+(playbook yazarken, onay beklerken izin balonu). Kurulum ve köprü: UnixAI-OS deposunda `integrations/pixel-office/`.
+Köprü MorpheusAI'nin `/api/live` akışını okur; giriş açıksa `MORPHEUS_API_TOKEN` gerekir.
+
 ## Ajan izleme arayüzü (Langfuse)
 
 Ajan çalışmaları, araç adımları, GPT çağrıları (model, token) ve playbook üretimi kurum içi Langfuse'a OpenTelemetry ile
