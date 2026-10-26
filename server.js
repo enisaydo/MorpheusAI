@@ -24,6 +24,7 @@ const aap = require("./lib/aap");
 const logger = require("./lib/logger");
 const oplog = require("./lib/oplog");
 const live = require("./lib/live");
+const tracing = require("./lib/tracing");
 const bitbucket = require("./lib/bitbucket");
 const prompts = require("./lib/prompts");
 const usage = require("./lib/usage");
@@ -319,6 +320,8 @@ async function handleApi(req, res, url) {
       return sendJson(res, 200, { items: remediation.list({ status: url.searchParams.get("status") || undefined, server: url.searchParams.get("server") || undefined }), config: remediation.config() });
     case "POST /api/remediations":
       return sendJson(res, 201, await remediation.create(json, STANDARDS, who, { ai: MODE === "genai" }));
+    case "GET /api/tracing/status":
+      return sendJson(res, 200, await tracing.status());
     case "GET /api/live":
       return live.handle(req, res, url);
     case "GET /api/remediations/events":

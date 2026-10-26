@@ -1600,7 +1600,7 @@ function a2aTranscript(r) {
   State.a2aYaml = Object.fromEntries(rems.map((x) => [x.id, x.playbook || ""]));
   return `<div class="a2a-head"><span class="label ${out ? "blue" : "green"}">${out ? "giden" : "gelen"}</span>
       <b>${esc(asker)}</b> → <b>${esc(answerer)}</b>${r.server ? ` · sunucu <code>${esc(r.server)}</code>` : ""}
-      <span class="muted sm">${esc(fmtTime(r.time))}${r.durationMs != null ? ` · ${fmtDur(r.durationMs)}` : ""}${r.user ? ` · başlatan ${esc(r.user)}` : ""}</span></div>
+      <span class="muted sm">${esc(fmtTime(r.time))}${r.durationMs != null ? ` · ${fmtDur(r.durationMs)}` : ""}${r.user ? ` · başlatan ${esc(r.user)}` : ""}</span>${lfLink(r.traceId)}</div>
     <div class="a2a-chat">
       <div class="a2a-msg ${out ? "self" : "peer"}"><div class="a2a-who">${esc(asker)}</div><div class="bubble">${esc(r.question).replace(/\n/g, "<br>")}</div></div>
       <div class="a2a-msg ${out ? "peer" : "self"}"><div class="a2a-who">${esc(answerer)}</div>
@@ -1621,6 +1621,7 @@ function a2aList(items) {
 
 async function loadA2A(targetList = "#a2aList", targetDetail = "#a2aDetail", server = State.a2a.server) {
   if (targetList === "#a2aList" && State.hist && State.hist.tab !== "a2a") return loadHist();
+  await lfStatus();
   try {
     const r = await Api.a2a({ server, peer: State.a2a.peer });
     if ($("#a2aPeer")) {
@@ -1791,6 +1792,18 @@ function bindLive() {
   $("#uvLiveClear").onclick = () => { State.live.rows.clear(); $("#uvLiveFeed").innerHTML = `<div class="lv-empty">Temizlendi. Yeni istekler burada belirecek.</div>`; };
 }
 
+/* ---- Langfuse bağlantıları (izleme açıksa) ---- */
+State.lf = null;
+async function lfStatus() {
+  if (State.lf) return State.lf;
+  try { State.lf = await Api.tracing(); } catch { State.lf = { enabled: false }; }
+  const a = $("#lfAll");
+  if (a && State.lf.enabled && State.lf.traceUrl) { a.href = State.lf.traceUrl.replace(/\/traces\/$/, "/traces"); a.classList.remove("hidden"); }
+  return State.lf;
+}
+const lfLink = (traceId) => (State.lf?.enabled && State.lf.traceUrl && traceId
+  ? `<a class="btn sm lf-link" href="${esc(State.lf.traceUrl + traceId)}" target="_blank" rel="noopener" title="Bu konuşmanın tüm adımları, GPT çağrıları ve token kullanımı">Langfuse'ta aç ↗</a>` : "");
+
 /* ================================================================== */
 /*  Geçmiş: Ajanlar arası · Görevler (düzeltme playbook'ları) · Sohbetler */
 /* ================================================================== */
@@ -1807,7 +1820,7 @@ function taskView(r) {
     server: typeof r.server === "object" ? r.server?.name : r.server, target: typeof r.server === "object" ? r.server?.target : r.target,
     score: r.score ?? comp.score ?? null, risk: r.risk, disruptive: r.disruptive, summary: r.summary, playbook: r.playbook,
     approval: r.approval, rejected: r.rejected, jobs: r.jobs || (r.lastJob ? [r.lastJob] : []), events: r.events || [],
-    scm: r.scm, aapTemplate: r.aapTemplate, source: r.source, createdAt: r.createdAt || r.sentAt, requestedBy: r.requestedBy || r.sentBy, url: r.url,
+    scm: r.scm, aapTemplate: r.aapTemplate, source: r.source, traceId: r.traceId, createdAt: r.createdAt || r.sentAt, requestedBy: r.requestedBy || r.sentBy, url: r.url,
   };
 }
 
@@ -1846,7 +1859,7 @@ async function showHist(id) {
       const t = taskView(await Api.remediation(id));
       State.a2aYaml = { [t.id]: t.playbook || "" };
       box.innerHTML = `<div class="a2a-head">${remTag(t.status)} <b>${esc(t.server || "")}</b> · ${esc(t.title)}
-          <span class="muted sm">${esc(histTime(t.createdAt))}${t.requestedBy ? ` · ${esc(t.requestedBy)}` : ""}${t.source ? ` · kaynak ${esc(t.source)}` : ""}</span></div>
+          <span class="muted sm">${esc(histTime(t.createdAt))}${t.requestedBy ? ` · ${esc(t.requestedBy)}` : ""}${t.source ? ` · kaynak ${esc(t.source)}` : ""}</span>${lfLink(t.traceId)}</div>
         <div class="sub-h">Zaman çizelgesi</div>${taskTimeline(t)}
         ${t.jobs.length ? `<div class="sub-h">AAP işleri</div>${t.jobs.map((j) => `<div class="h-job"><b>#${esc(j.id)}</b> <span class="label">${j.mode === "run" ? "gerçek" : "check (dry-run)"}</span> ${esc(j.status || "")}
             <span class="muted sm">${esc(histTime(j.launchedAt))}${j.launchedBy ? ` · ${esc(j.launchedBy)}` : ""}</span>${j.url ? ` <a href="${esc(j.url)}" target="_blank" rel="noopener">AAP</a>` : ""}</div>`).join("")}` : ""}
@@ -1856,7 +1869,7 @@ async function showHist(id) {
     } else {
       const c = await Api.conversation(id);
       box.innerHTML = `<div class="a2a-head"><span class="label ${c.status === "failed" ? "red" : "green"}">${esc(c.status || "")}</span>
-          <b>${esc(c.origin || "arayüz")}</b>${c.hop ? ` · hop ${c.hop}` : ""} <span class="muted sm">${esc(histTime(c.startedAt))}${c.user ? ` · ${esc(c.user)}` : ""} · ${esc(MODE_LABEL[c.mode] || c.mode || "")}</span></div>
+          <b>${esc(c.origin || "arayüz")}</b>${c.hop ? ` · hop ${c.hop}` : ""} <span class="muted sm">${esc(histTime(c.startedAt))}${c.user ? ` · ${esc(c.user)}` : ""} · ${esc(MODE_LABEL[c.mode] || c.mode || "")}</span>${lfLink(c.traceId)}</div>
         <div class="a2a-chat">
           <div class="a2a-msg self"><div class="a2a-who">${esc(c.user || c.origin || "Siz")}</div><div class="bubble">${esc(c.question || "").replace(/\n/g, "<br>")}</div></div>
           <div class="a2a-msg peer"><div class="a2a-who">${esc(SELF_AGENT)}</div><div class="bubble ${c.status === "failed" ? "error" : ""}">${c.error ? `<b>Hata:</b> ${esc(c.error)}` : md(c.reply || "")}</div></div>
@@ -1867,6 +1880,7 @@ async function showHist(id) {
 }
 
 async function loadHist() {
+  await lfStatus();
   const tab = State.hist.tab, list = $("#a2aList");
   if (tab === "a2a") return loadA2A();
   list.dataset.detail = "#a2aDetail";

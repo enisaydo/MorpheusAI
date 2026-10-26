@@ -66,6 +66,7 @@ const Api = (() => {
     agentSettings: () => request("/agent/settings"),
     saveAgentSettings: (s) => request("/agent/settings", { method: "POST", body: s }),
     tasks: (q = {}) => request(`/remediations?${new URLSearchParams(Object.entries(q).filter(([, v]) => v))}`),
+    tracing: () => request("/tracing/status"),
     conversations: () => request("/agent/conversations"),
     conversation: (id) => request(`/agent/conversations/${encodeURIComponent(id)}`),
     mcpServer: () => request("/mcp/server"),

@@ -210,3 +210,8 @@
 .h-timeline li.bad::before { background: var(--uv-red); box-shadow: 0 0 8px var(--uv-red); }
 .h-timeline li b { color: var(--uv-cyan); font-weight: 600; margin: 0 4px; }
 .h-job { font-size: 12.5px; padding: 4px 0; border-bottom: 1px dashed var(--uv-line); }
+
+.view.universe .lf-link { margin-left: auto; color: #ffd48a; border-color: rgba(255, 176, 0, 0.55); background: rgba(255, 176, 0, 0.08); }
+.view.universe .a2a-head .lf-link { margin-left: auto; }
+.view.universe #lfAll { margin: 0 0 10px 10px; vertical-align: top; }
+.view.universe .lf-link.hidden { display: none; }

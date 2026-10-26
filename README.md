@@ -136,6 +136,12 @@ Genel Bakış'taki "son skor" bu kayıtlardan okunur; servis yeniden başlatıl�
 - Kullanıcı adı ilk girişte arayüzde sorulur ve `X-Morpheus-User` header'ı ile gönderilir (doğrulanmaz). Önde SSO yapan bir proxy varsa `.env`'de `USER_HEADER` ile onun header'ı kullanılabilir.
 - Gateway `usage` alanı döndürmezse token sayısı karakter sayısından tahmin edilir ve raporda "≈" ile işaretlenir.
 
+## Ajan izleme arayüzü (Langfuse)
+
+Ajan çalışmaları, araç adımları, GPT çağrıları (model, token) ve playbook üretimi kurum içi Langfuse'a OpenTelemetry ile
+gönderilir; UnixAI'den gelen konuşmalar UnixAI'nin iziyle birleşir. Kurulum: UnixAI-OS deposunda `deploy/langfuse/kur.sh`;
+sonra `.env`'e `LANGFUSE_URL`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_PROJECT_ID` girin.
+
 ## Loglar
 
 Sistemin yaptığı her işlem, kategorisine göre **ayrı dosyaya** yazılır (`logs/<kategori>/<kategori>-YYYY-MM-DD.jsonl`,
