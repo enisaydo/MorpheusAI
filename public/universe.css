@@ -199,3 +199,14 @@
 
 .uv-btn#uvLiveMode.on { color: #fff; background: rgba(255, 45, 85, 0.25); border-color: var(--uv-red); box-shadow: 0 0 12px rgba(255, 45, 85, 0.45); }
 .uv-btn#uvLiveMode.on::first-letter { color: var(--uv-red); }
+
+/* ---------------- geçmiş: sekmeler, zaman çizelgesi ---------------- */
+.view.universe .a2a-tabs { margin: 0 0 10px; display: inline-flex; }
+.view.universe .a2a-tabs button { background: rgba(0, 0, 0, 0.45); color: var(--uv-text); border-color: var(--uv-line-2); font-family: var(--mono, monospace); }
+.view.universe .a2a-tabs button.on { background: var(--uv-green); color: #001a0a; border-color: var(--uv-green); }
+.h-timeline { list-style: none; margin: 4px 0 12px; padding: 0 0 0 14px; border-left: 2px solid var(--uv-line-2); display: grid; gap: 6px; font-size: 12.5px; }
+.h-timeline li { position: relative; line-height: 1.45; }
+.h-timeline li::before { content: ""; position: absolute; left: -20px; top: 5px; width: 9px; height: 9px; border-radius: 50%; background: var(--uv-green); box-shadow: 0 0 8px var(--uv-green); }
+.h-timeline li.bad::before { background: var(--uv-red); box-shadow: 0 0 8px var(--uv-red); }
+.h-timeline li b { color: var(--uv-cyan); font-weight: 600; margin: 0 4px; }
+.h-job { font-size: 12.5px; padding: 4px 0; border-bottom: 1px dashed var(--uv-line); }

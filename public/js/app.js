@@ -1620,6 +1620,7 @@ function a2aList(items) {
 }
 
 async function loadA2A(targetList = "#a2aList", targetDetail = "#a2aDetail", server = State.a2a.server) {
+  if (targetList === "#a2aList" && State.hist && State.hist.tab !== "a2a") return loadHist();
   try {
     const r = await Api.a2a({ server, peer: State.a2a.peer });
     if ($("#a2aPeer")) {
@@ -1729,6 +1730,7 @@ function liveRow(e) {
 
 function liveEvent(ev) {
   if (window.Universe?.live) Universe.live(ev);
+  histRefreshSoon(ev);
   if (ev.type === "a2a" && ev.phase === "end" && !ev.replay) liveConversationDone();
   const feed = $("#uvLiveFeed");
   if (!feed || State.live.paused) return;
@@ -1787,6 +1789,121 @@ function bindLive() {
     e.target.textContent = State.live.paused ? "Devam" : "Duraklat";
   };
   $("#uvLiveClear").onclick = () => { State.live.rows.clear(); $("#uvLiveFeed").innerHTML = `<div class="lv-empty">Temizlendi. Yeni istekler burada belirecek.</div>`; };
+}
+
+/* ================================================================== */
+/*  Geçmiş: Ajanlar arası · Görevler (düzeltme playbook'ları) · Sohbetler */
+/* ================================================================== */
+State.hist = { tab: "a2a", sel: null, items: [], t: null };
+const HIST_EMPTY = { tasks: "Henüz görev yok. Bir bulgu MorpheusAI'ye gönderildiğinde ya da ajanlar playbook ürettiğinde burada listelenir.",
+  chats: "Henüz ajan sohbeti yok. Ajan ekranında yaptığınız konuşmalar burada saklanır." };
+const histTime = (iso) => (iso ? fmtTime(iso) : "");
+
+/** Görev kaydını iki uygulamanın biçiminden ortak biçime çevirir */
+function taskView(r) {
+  const comp = r.compliance || {};
+  return {
+    id: r.id, status: r.status, title: r.playbookTitle || r.title || r.finding?.title || r.id,
+    server: typeof r.server === "object" ? r.server?.name : r.server, target: typeof r.server === "object" ? r.server?.target : r.target,
+    score: r.score ?? comp.score ?? null, risk: r.risk, disruptive: r.disruptive, summary: r.summary, playbook: r.playbook,
+    approval: r.approval, rejected: r.rejected, jobs: r.jobs || (r.lastJob ? [r.lastJob] : []), events: r.events || [],
+    scm: r.scm, aapTemplate: r.aapTemplate, source: r.source, createdAt: r.createdAt || r.sentAt, requestedBy: r.requestedBy || r.sentBy, url: r.url,
+  };
+}
+
+function histTaskList(items) {
+  return items.map((x) => { const t = taskView(x); return `<div class="a2a-item ${State.hist.sel === t.id ? "on" : ""}" data-hist="${esc(t.id)}">
+      <div class="a2a-item-h"><span class="a2a-dir">${esc(t.server || "?")}</span>${remTag(t.status)}<span class="muted sm">${esc(histTime(t.createdAt))}</span></div>
+      <div class="a2a-q">${esc(t.title)}</div>
+      <div class="a2a-badges">${t.score != null ? `<span class="label ${t.score >= 85 ? "green" : "gold"}">uyum ${t.score}</span>` : ""}
+        ${t.jobs[0] ? `<span class="label">AAP #${esc(t.jobs[0].id)} ${esc(t.jobs[0].mode || "")} · ${esc(t.jobs[0].status || "")}</span>` : ""}
+        ${t.approval ? `<span class="label blue">onaylı</span>` : ""}<span class="muted sm mono">${esc(t.id)}</span></div>
+    </div>`; }).join("") || `<div class="empty sm">${HIST_EMPTY.tasks}</div>`;
+}
+
+function histChatList(items) {
+  return items.map((c) => `<div class="a2a-item ${State.hist.sel === c.id ? "on" : ""} ${c.status === "failed" ? "err" : ""}" data-hist="${esc(c.id)}">
+      <div class="a2a-item-h"><span class="a2a-dir">${esc(c.origin || "arayüz")}${c.hop ? ` · hop ${c.hop}` : ""}</span><span class="muted sm">${esc(histTime(c.startedAt))}</span></div>
+      <div class="a2a-q">${esc(c.question || "")}</div>
+      <div class="a2a-badges">${(c.remoteAgents || []).map((a) => `<span class="label green">↔ ${esc(a)}</span>`).join(" ")}
+        <span class="label">${(c.tools || []).length} adım</span>${c.status === "failed" ? `<span class="label red">hata</span>` : ""}</div>
+    </div>`).join("") || `<div class="empty sm">${HIST_EMPTY.chats}</div>`;
+}
+
+function taskTimeline(t) {
+  const ev = t.events.slice().reverse();
+  return ev.length ? `<ol class="h-timeline">${ev.map((e) => `<li class="${e.error ? "bad" : ""}"><span class="mono muted sm">${esc(histTime(e.at))}</span>
+      <b>${esc(e.by || "")}</b> <span>${esc(e.text)}</span></li>`).join("")}</ol>` : `<p class="muted sm">Zaman çizelgesi yok.</p>`;
+}
+
+async function showHist(id) {
+  State.hist.sel = id;
+  $$("#a2aList [data-hist]").forEach((el) => el.classList.toggle("on", el.dataset.hist === id));
+  const box = $("#a2aDetail");
+  box.innerHTML = loadingView("Yükleniyor…");
+  try {
+    if (State.hist.tab === "tasks") {
+      const t = taskView(await Api.remediation(id));
+      State.a2aYaml = { [t.id]: t.playbook || "" };
+      box.innerHTML = `<div class="a2a-head">${remTag(t.status)} <b>${esc(t.server || "")}</b> · ${esc(t.title)}
+          <span class="muted sm">${esc(histTime(t.createdAt))}${t.requestedBy ? ` · ${esc(t.requestedBy)}` : ""}${t.source ? ` · kaynak ${esc(t.source)}` : ""}</span></div>
+        <div class="sub-h">Zaman çizelgesi</div>${taskTimeline(t)}
+        ${t.jobs.length ? `<div class="sub-h">AAP işleri</div>${t.jobs.map((j) => `<div class="h-job"><b>#${esc(j.id)}</b> <span class="label">${j.mode === "run" ? "gerçek" : "check (dry-run)"}</span> ${esc(j.status || "")}
+            <span class="muted sm">${esc(histTime(j.launchedAt))}${j.launchedBy ? ` · ${esc(j.launchedBy)}` : ""}</span>${j.url ? ` <a href="${esc(j.url)}" target="_blank" rel="noopener">AAP</a>` : ""}</div>`).join("")}` : ""}
+        <div class="sub-h">Playbook</div>${remCard(t)}`;
+      if (typeof hydrateRem === "function") hydrateRem(box);
+      $$("[data-copy-yaml]", box).forEach((b) => (b.onclick = () => copyText(State.a2aYaml[b.dataset.copyYaml] || "")));
+    } else {
+      const c = await Api.conversation(id);
+      box.innerHTML = `<div class="a2a-head"><span class="label ${c.status === "failed" ? "red" : "green"}">${esc(c.status || "")}</span>
+          <b>${esc(c.origin || "arayüz")}</b>${c.hop ? ` · hop ${c.hop}` : ""} <span class="muted sm">${esc(histTime(c.startedAt))}${c.user ? ` · ${esc(c.user)}` : ""} · ${esc(MODE_LABEL[c.mode] || c.mode || "")}</span></div>
+        <div class="a2a-chat">
+          <div class="a2a-msg self"><div class="a2a-who">${esc(c.user || c.origin || "Siz")}</div><div class="bubble">${esc(c.question || "").replace(/\n/g, "<br>")}</div></div>
+          <div class="a2a-msg peer"><div class="a2a-who">${esc(SELF_AGENT)}</div><div class="bubble ${c.status === "failed" ? "error" : ""}">${c.error ? `<b>Hata:</b> ${esc(c.error)}` : md(c.reply || "")}</div></div>
+        </div>
+        <div class="sub-h">Adımlar</div>${traceHtml(c.trace || []).replace("<details class=\"trace\">", "<details class=\"trace\" open>")}`;
+    }
+  } catch (e) { box.innerHTML = errorView(e); }
+}
+
+async function loadHist() {
+  const tab = State.hist.tab, list = $("#a2aList");
+  if (tab === "a2a") return loadA2A();
+  list.dataset.detail = "#a2aDetail";
+  try {
+    const items = tab === "tasks" ? (await Api.tasks({ server: State.a2a.server })).items : await Api.conversations();
+    State.hist.items = items;
+    list.innerHTML = tab === "tasks" ? histTaskList(items) : histChatList(items);
+    if (State.hist.sel && items.some((x) => x.id === State.hist.sel)) showHist(State.hist.sel);
+    else $("#a2aDetail").innerHTML = `<div class="empty">${tab === "tasks" ? "Bir görev seçin: zaman çizelgesi, AAP işleri ve playbook (YAML) burada görünür." : "Bir sohbet seçin: soru, cevap ve ajanın adımları burada görünür."}</div>`;
+  } catch (e) { list.innerHTML = errorView(e); }
+}
+
+/** Canlı olay gelince açık sekmeyi yenile (biraz bekleyip toplu) */
+function histRefreshSoon(ev) {
+  const tab = State.hist.tab;
+  if (tab === "a2a" || ev.replay) return;
+  if (tab === "tasks" && !(ev.type === "rem" || (ev.type === "http" && ev.method === "POST") || (ev.type === "a2a" && ev.phase === "end"))) return;
+  if (tab === "chats" && !(ev.type === "a2a" && ev.phase === "end") && !(ev.type === "step" && ev.phase === "end")) return;
+  clearTimeout(State.hist.t);
+  State.hist.t = setTimeout(loadHist, 1200);
+}
+
+function bindHist() {
+  if (!$("#a2aTabs")) return;
+  $("#a2aTabs").onclick = (e) => {
+    const b = e.target.closest("[data-a2a-tab]");
+    if (!b) return;
+    State.hist.tab = b.dataset.a2aTab;
+    State.hist.sel = null;
+    $$("#a2aTabs [data-a2a-tab]").forEach((x) => x.classList.toggle("on", x === b));
+    if (State.hist.tab !== "a2a") window.Universe?.liveMode?.(false);
+    loadHist();
+  };
+  $("#a2aList").addEventListener("click", (e) => {
+    const it = e.target.closest("[data-hist]");
+    if (it) showHist(it.dataset.hist);
+  });
 }
 
 function bindEvents() {
@@ -1899,6 +2016,7 @@ function bindEvents() {
   bindOplogs();
   bindA2A();
   bindLive();
+  bindHist();
   // düzeltmeler
   $("#remRefresh").onclick = loadRemediations;
   $("#remStatus").onclick = (e) => {

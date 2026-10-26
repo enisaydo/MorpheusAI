@@ -65,6 +65,7 @@ const Api = (() => {
     a2aItem: (id) => request(`/a2a/${encodeURIComponent(id)}`),
     agentSettings: () => request("/agent/settings"),
     saveAgentSettings: (s) => request("/agent/settings", { method: "POST", body: s }),
+    tasks: (q = {}) => request(`/remediations?${new URLSearchParams(Object.entries(q).filter(([, v]) => v))}`),
     conversations: () => request("/agent/conversations"),
     conversation: (id) => request(`/agent/conversations/${encodeURIComponent(id)}`),
     mcpServer: () => request("/mcp/server"),
