@@ -1633,8 +1633,11 @@ async function loadA2A(targetList = "#a2aList", targetDetail = "#a2aDetail", ser
       Universe.setStats(r.items);
     }
     $(targetList).dataset.detail = targetDetail;
-    const first = r.items.find((x) => x.id === State.a2a.sel) || r.items[0];
+    // ana sayfada otomatik seçim yok: seçilmezse Konuşma Evreni canlı modda isteklere göre hareket eder
+    const main = targetList === "#a2aList";
+    const first = r.items.find((x) => x.id === State.a2a.sel) || (main ? null : r.items[0]);
     if (first) showA2A(first.id, targetList, targetDetail);
+    else if (main && r.items.length) { $(targetDetail).innerHTML = `<div class="empty">${A2A_LIVE_HINT}</div>`; window.Universe?.liveMode?.(false); }
     else $(targetDetail).innerHTML = `<div class="empty">${A2A_EMPTY}</div>`;
   } catch (e) { $(targetList).innerHTML = errorView(e); }
 }
@@ -1670,6 +1673,7 @@ function bindA2A() {
 /*  Canlı akış (SSE /api/live): MCP ve uygulamalar arası istekler anında */
 /* ================================================================== */
 State.live = { es: null, paused: false, rows: new Map(), lastId: 0, refreshT: null };
+const A2A_LIVE_HINT = "Soldan bir konuşma seçin, film olarak oynasın.<br>Seçmezseniz <b>Konuşma Evreni canlı modda</b>: karakterler o anki REST/MCP isteklerine göre hareket eder.";
 const LIVE_SELF = SELF_SHORT === "Morpheus" ? "MorpheusAI" : "UnixAI";
 const liveTime = (iso) => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleTimeString("tr-TR", { hour12: false }); };
 const liveDur = (ms) => (ms == null ? "" : ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} sn`);
@@ -1711,6 +1715,12 @@ function liveRow(e) {
       ${e.question ? `<div class="lv-q">❝ ${esc(e.question)} ❞</div>` : ""}
       ${end && e.answer ? `<div class="lv-a">↳ ${esc(e.answer)}${e.remediations ? ` <span class="label gold">${e.remediations} playbook</span>` : ""}</div>` : ""}`;
   }
+  if (e.type === "run") {
+    if (e.phase === "start") return `${t}<span class="lv-tag run">TOPLAMA</span><b>Toplama başladı</b> · ${(e.servers || []).length} sunucu <span class="muted">${esc(e.trigger || "")}</span>`;
+    if (e.phase === "end") return `${t}<span class="lv-tag run">TOPLAMA</span><b>Toplama bitti</b> · ${esc(e.status || "")}`;
+    return `${t}<span class="lv-tag run">TOPLAMA</span><code>${esc(e.server)}</code> ${e.ok === false ? `<span class="lv-bad">✕ ${esc(e.error || "")}</span>` : `<span class="lv-ok">✓ skor ${esc(e.score)}${e.p1 ? ` · P1 ${e.p1}` : ""}</span>`}`;
+  }
+  if (e.type === "rem") return `${t}<span class="lv-tag rem">AKIŞ</span><code>${esc(e.id)}</code> ${esc(e.text)} <span class="muted">${esc(e.by || "")}</span>`;
   if (e.type === "step") return `${t}<span class="lv-tag step">ADIM</span><span class="lv-ind">⚙ <code>${esc(e.tool)}</code> <span class="muted">${esc(e.where || "")}</span></span> ${res}`;
   if (e.type === "http") return `${t}<span class="lv-tag http">REST</span><b>${esc(liveWho(e))}</b> <code>${esc(e.method)} ${esc(e.path)}</code>${e.by ? ` <span class="muted">onaylayan ${esc(e.by)}</span>` : ""} ${res}`;
   const what = e.method === "tools/call" ? e.tool : e.method;
@@ -1719,7 +1729,7 @@ function liveRow(e) {
 
 function liveEvent(ev) {
   if (window.Universe?.live) Universe.live(ev);
-  if (ev.type === "a2a" && ev.phase === "end") liveConversationDone();
+  if (ev.type === "a2a" && ev.phase === "end" && !ev.replay) liveConversationDone();
   const feed = $("#uvLiveFeed");
   if (!feed || State.live.paused) return;
   feed.querySelector(".lv-empty")?.remove();
@@ -1748,9 +1758,9 @@ function liveConversationDone() {
   clearTimeout(State.live.refreshT);
   State.live.refreshT = setTimeout(async () => {
     if (!$("#a2aList")) return;
-    if ($("#uvAuto")?.checked) { State.a2a.sel = null; return loadA2A(); }
     try {
       const r = await Api.a2a({ server: State.a2a.server, peer: State.a2a.peer });
+      if ($("#uvAuto")?.checked && r.items[0]) { State.a2a.sel = r.items[0].id; return loadA2A(); }
       $("#a2aList").innerHTML = a2aList(r.items);
       if (window.Universe) Universe.setStats(r.items);
     } catch {}
@@ -1759,7 +1769,13 @@ function liveConversationDone() {
 
 function bindLive() {
   if (!$("#uvLiveFeed")) return;
-  try { $("#uvAuto").checked = localStorage.getItem("universe.autoplay") !== "off"; } catch {}
+  try { $("#uvAuto").checked = localStorage.getItem("universe.autoplay") === "on"; } catch { $("#uvAuto").checked = false; }
+  // evrendeki "● Canlı" düğmesi: konuşma seçimini bırak
+  $("#uvStage")?.addEventListener("uv-live-mode", () => {
+    State.a2a.sel = null;
+    $$("#a2aList .a2a-item").forEach((el) => el.classList.remove("on"));
+    if ($("#a2aDetail")) $("#a2aDetail").innerHTML = `<div class="empty">${A2A_LIVE_HINT}</div>`;
+  });
   $("#uvAuto").onchange = (e) => { try { localStorage.setItem("universe.autoplay", e.target.checked ? "on" : "off"); } catch {} };
   $("#uvLivePause").onclick = (e) => {
     State.live.paused = !State.live.paused;

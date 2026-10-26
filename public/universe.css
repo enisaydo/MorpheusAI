@@ -183,7 +183,7 @@
 .lv-row.lv-step { padding-left: 22px; }
 .lv-t { color: var(--uv-muted); margin-right: 8px; }
 .lv-tag { display: inline-block; min-width: 40px; text-align: center; font-size: 10px; font-weight: 700; padding: 0 5px; margin-right: 8px; border-radius: 4px; border: 1px solid currentColor; }
-.lv-tag.mcp { color: var(--uv-cyan); } .lv-tag.http { color: var(--uv-amber); } .lv-tag.a2a { color: var(--uv-green); } .lv-tag.step { color: #b48cff; }
+.lv-tag.mcp { color: var(--uv-cyan); } .lv-tag.run { color: #7fd1ff; } .lv-tag.rem { color: #ff9f6b; } .lv-tag.http { color: var(--uv-amber); } .lv-tag.a2a { color: var(--uv-green); } .lv-tag.step { color: #b48cff; }
 .lv-row b { color: #e6ffee; font-weight: 600; }
 .lv-row code { font-size: 11.5px; }
 .lv-args { color: var(--uv-muted); }
@@ -196,3 +196,6 @@
 .lv-empty { color: var(--uv-muted); padding: 10px 12px; font-family: var(--sans, sans-serif); }
 @media (prefers-reduced-motion: reduce) { .lv-row.flash, .uv-dot.on, .lv-run::after { animation: none; } }
 @media (max-width: 700px) { .lv-q, .lv-a { margin-left: 0; } .uv-live-feed { max-height: 220px; } }
+
+.uv-btn#uvLiveMode.on { color: #fff; background: rgba(255, 45, 85, 0.25); border-color: var(--uv-red); box-shadow: 0 0 12px rgba(255, 45, 85, 0.45); }
+.uv-btn#uvLiveMode.on::first-letter { color: var(--uv-red); }

@@ -38,6 +38,7 @@
     statusEl: null, chapterEl: null, statsEl: null, skip: null,
     cam: { x: 400, z: 1, tx: 400, tz: 1, follow: null, manualUntil: 0 },
     orb: null, sparks: [], codeBits: [], items: [], drag: null, fx: {}, C: {}, packets: [], liveConv: null,
+    mode: "live", liveQ: [], liveBusy: false, liveToken: 0,
   };
   const serverList = () => (U.servers.length ? U.servers.slice(0, 5) : DEFAULT_SERVERS);
 
@@ -155,6 +156,23 @@
         Object.assign(U.C.unixai, { x: SPOT.kiosk, dir: -1, action: "type" });
         Object.assign(U.C.morpheus, { x: SPOT.chair, dir: -1, action: "sit" });
       },
+      /** Canlı modda karakterin gideceği yer */
+      spot(kind, what, server) {
+        const r = rackX(server || U.mission || serverList()[0]);
+        switch (what) {
+          case "home": return kind === "unixai" ? { x: SPOT.kiosk, dir: -1, action: "type" } : { x: SPOT.chair, dir: -1, action: "sit" };
+          case "rack": return kind === "unixai" ? { x: r - 42, dir: 1, action: "inspect" } : { x: r + 54, dir: -1, action: null };
+          case "forge": return { x: SPOT.forge - 50, dir: 1, action: "forge" };
+          case "console": return { x: SPOT.console + 10, dir: -1, action: "type" };
+          case "vault": return { x: SPOT.vault - 62, dir: 1, action: null };
+          default: return null;
+        }
+      },
+      liveFx(what, on, c) {
+        if (what === "forge") { U.fx.forgeHot = on; if (on) burstSparks(SPOT.forge - 8, GROUND - 52); else c.carry = "scroll"; }
+        if (what === "vault") U.fx.vaultGlow = on;
+      },
+      carryFor: { pill: "pill", doc: "scroll", mail: "mail" },
       finalPose(S) {
         if (S.mission) {
           Object.assign(U.C.unixai, { x: rackX(S.server) - 46, dir: 1, action: null });
@@ -425,7 +443,7 @@
     }
     function vault(ctx, x) {
       ctx.fillStyle = "#0f1a26"; rrect(ctx, x - 40, GROUND - 110, 80, 110, 6); ctx.fill();
-      ctx.strokeStyle = "#2d8cff"; ctx.lineWidth = 2; glow(ctx, "#2d8cff", 6); ctx.stroke(); noGlow(ctx);
+      ctx.strokeStyle = "#2d8cff"; ctx.lineWidth = 2; glow(ctx, "#2d8cff", U.fx.vaultGlow ? 26 : 6); ctx.stroke(); noGlow(ctx);
       ctx.fillStyle = "#2d8cff";
       ctx.beginPath(); ctx.moveTo(x - 22, GROUND - 86); ctx.lineTo(x + 22, GROUND - 86); ctx.lineTo(x + 15, GROUND - 52); ctx.lineTo(x - 15, GROUND - 52); ctx.closePath(); ctx.fill();
       ctx.fillStyle = "#0f1a26"; ctx.beginPath(); ctx.moveTo(x - 6, GROUND - 76); ctx.lineTo(x + 6, GROUND - 76); ctx.lineTo(x + 4, GROUND - 62); ctx.lineTo(x - 4, GROUND - 62); ctx.closePath(); ctx.fill();
@@ -656,6 +674,22 @@
         Object.assign(U.C.morpheus, { x: SPOT.kaanChair, dir: -1, action: "type" });
         U.fx.monitorAlert = false; U.fx.print = 0; U.fx.noc = null;
       },
+      spot(kind, what, server) {
+        const r = rackX(server || U.mission || serverList()[0]);
+        switch (what) {
+          case "home": return kind === "unixai" ? { x: SPOT.denizChair, dir: 1, action: "type" } : { x: SPOT.kaanChair, dir: -1, action: "type" };
+          case "rack": return kind === "unixai" ? { x: r + 44, dir: -1, action: "inspect" } : { x: r + 98, dir: -1, action: null };
+          case "forge": return { x: SPOT.printer + 34, dir: -1, action: null };
+          case "console": return { x: SPOT.noc - 60, dir: 1, action: "present" };
+          case "vault": return { x: SPOT.kaanChair, dir: -1, action: "type" };
+          default: return null;
+        }
+      },
+      liveFx(what, on, c) {
+        if (what === "forge") { if (on) U.fx.print = performance.now(); else { U.fx.print = 0; c.carry = "paper"; } }
+        if (what === "rack" && on) U.fx.monitorAlert = true;
+      },
+      carryFor: { pill: "paper", doc: "paper", mail: "laptop" },
       finalPose(S) {
         if (S.mission) {
           Object.assign(U.C.unixai, { x: rackX(S.server) - 48, dir: 1, action: "inspect" });
@@ -1162,6 +1196,7 @@
             <label class="uv-select"><span>Evren</span>
               <select id="uvWorld" aria-label="Evren seç">${Object.values(WORLDS).map((w) => `<option value="${w.id}">${w.label}</option>`).join("")}</select></label>
             <span class="uv-stats" id="uvStats"></span>
+            <button type="button" class="uv-btn ghost on" id="uvLiveMode" title="Konuşma seçimini bırak: karakterler o anki isteklere göre hareket eder">● Canlı</button>
             <button type="button" class="uv-btn" id="uvReplay" title="Seçili konuşmayı film olarak oynat">▶ Oynat</button>
             <button type="button" class="uv-btn ghost hidden" id="uvSkip" title="Filmi atla">⏭ Atla</button>
             <button type="button" class="uv-btn ghost" id="uvFx" aria-pressed="true"></button>
@@ -1177,6 +1212,7 @@
       U.statsEl = stage.querySelector("#uvStats");
       stage.querySelector("#uvReplay").onclick = () => U.lastPlay && play(U.lastPlay.record, U.lastPlay.detail);
       stage.querySelector("#uvSkip").onclick = () => U.skip && U.skip();
+      stage.querySelector("#uvLiveMode").onclick = () => liveMode(true);
       stage.querySelector("#uvFx").onclick = () => {
         U.effects = !U.effects;
         store.set("universe.effects", U.effects ? "on" : "off");
@@ -1211,6 +1247,7 @@
     for (const [k, c] of Object.entries(W.makeChars()))
       U.C[k] = { target: null, onArrive: null, phase: 0, walking: false, alpha: 1, fade: 0, bubble: null, carry: null, idleAt: performance.now() + 2500, ...c };
     U.fx = {}; U.items = []; U.orb = null; U.sparks = []; U.codeBits = []; U.scripted = false; U.packets = []; U.liveConv = null;
+    U.liveToken++; U.liveQ = [];
     if (U.skip) { const s = U.stage.querySelector("#uvSkip"); s && s.classList.add("hidden"); U.skip = null; }
     U.cam.follow = null;
     U.cam.x = U.cam.tx = W.home(U.selfKind); U.cam.z = U.cam.tz = 1;
@@ -1300,9 +1337,9 @@
     const mv = U.effects ? dt : 0;
     for (const c of Object.values(U.C)) {
       if (c.target != null) {
-        const dx = c.target - c.x, step = c.speed * mv;
+        const dx = c.target - c.x, step = c.speed * (c.fast ? 1.9 : 1) * mv;
         if (!U.effects || Math.abs(dx) <= Math.max(step, 0.5)) {
-          c.x = c.target; c.target = null; c.walking = false;
+          c.x = c.target; c.target = null; c.walking = false; c.fast = false;
           const f = c.onArrive; c.onArrive = null; f && f();
         } else { c.x += Math.sign(dx) * step; c.dir = Math.sign(dx); c.walking = true; c.phase += mv * 11; }
       }
@@ -1332,12 +1369,12 @@
   }
 
   function idle(c, now) {
-    if (c.target != null || now < c.idleAt || c.bubble) return;
+    if (U.liveBusy || c.target != null || now < c.idleAt || c.bubble) return;
     c.idleAt = now + rnd(5500, 10000);
     const plan = U.world.idle(c);
     if (!plan) return;
     c.action = null;
-    walkRaw(c, plan.x).then(() => { if (!U.scripted) Object.assign(c, plan.then()); });
+    walkRaw(c, plan.x).then(() => { if (!U.scripted && !U.liveBusy && c.target == null) Object.assign(c, plan.then()); });
   }
 
   /* ================================================================== */
@@ -1496,47 +1533,217 @@
     }
   }
 
-  /** Canlı olay: sahnede tepki (paket, balon); film oynarken yalnızca paket eklenir */
+  const kname = (k) => (k === "unixai" ? "UnixAI" : "MorpheusAI");
+
+  /** Canlı moda geç: konuşma seçimi bırakılır, karakterler o anki isteklere göre hareket eder */
+  function liveMode(fromUser) {
+    if (!U.world) return;
+    U.mode = "live";
+    U.playToken++; U.liveToken++; U.liveQ = []; U.liveBusy = false; U.liveConv = null;
+    U.lastPlay = null; U.scripted = false; U.orb = null; U.items = [];
+    if (U.skip) { U.skip = null; U.stage.querySelector("#uvSkip")?.classList.add("hidden"); }
+    for (const c of Object.values(U.C)) Object.assign(c, { target: null, onArrive: null, bubble: null, carry: null, alpha: 1, fade: 0, walking: false, fast: false, idleAt: performance.now() + 3000 });
+    U.world.reset({});
+    U.cam.follow = null;
+    flyTo(U.world.home(U.selfKind), 1);
+    U.stage.querySelector("#uvLiveMode")?.classList.add("on");
+    chapter("● Canlı mod");
+    status("● Canlı mod — karakterler o anki REST/MCP isteklerine göre hareket eder. Bir konuşma seçerseniz film oynar.", true);
+    if (fromUser) U.stage.dispatchEvent(new CustomEvent("uv-live-mode"));
+    kick();
+  }
+
+  /** Canlı hareket yönetmeni: film yönetmenine benzer, canlı moddan çıkılınca durur */
+  function liveDirector(token) {
+    const alive = () => { if (U.liveToken !== token || U.mode !== "live") throw CANCEL; };
+    const wait = async (ms) => { await new Promise((r) => setTimeout(r, ms)); alive(); };
+    const walk = async (c, x) => { if (!c) return; c.action = null; c.fast = true; await walkRaw(c, x); alive(); };
+    const go = async (c, what, server) => {
+      const sp = c && U.world.spot(c.kind, what, server);
+      if (!sp) return;
+      U.cam.follow = c; c.lead = 0; U.cam.manualUntil = 0;
+      await walk(c, sp.x);
+      c.dir = sp.dir; c.action = sp.action;
+    };
+    const meet = async (a, b) => {
+      if (!a || !b) return;
+      if (b.action === "sit") b.action = null;
+      U.cam.follow = a; U.cam.manualUntil = 0;
+      await walk(a, b.x + (a.x < b.x ? -88 : 88));
+      a.dir = Math.sign(b.x - a.x) || 1; b.dir = -a.dir;
+      if (b.action === "type") b.action = null;
+      U.cam.follow = { x: (a.x + b.x) / 2 };
+    };
+    const say = async (c, t, ms) => {
+      if (!c) return;
+      c.bubble = { kind: "say", text: t, t0: performance.now() };
+      await wait(ms ?? clamp(1200 + String(t).length * 22, 1800, 4500));
+      if (c.bubble?.text === t) c.bubble = null;
+    };
+    const think = (c, items) => { if (c) c.bubble = { kind: "think", items, t0: performance.now() }; };
+    return { alive, wait, walk, go, meet, say, think };
+  }
+
+  function liveDo(fn) {
+    U.liveQ.push(fn);
+    // yoğun trafikte önce düşük öncelikli eski adımlar (araç adımı, REST, tek sunucu) atlanır; konuşmalar korunur
+    while (U.liveQ.length > 8) {
+      const i = U.liveQ.findIndex((f) => (f.prio || 1) < 2);
+      U.liveQ.splice(i >= 0 ? i : 0, 1);
+    }
+    pump();
+  }
+  async function pump() {
+    if (U.liveBusy) return;
+    U.liveBusy = true;
+    const token = U.liveToken;
+    const L = liveDirector(token);
+    while (U.liveQ.length && token === U.liveToken) {
+      const fn = U.liveQ.shift();
+      try { await fn(L); } catch (e) { if (e !== CANCEL) console.error(e); }
+    }
+    U.liveBusy = false;
+    if (token === U.liveToken) {
+      U.cam.follow = null;
+      setTimeout(() => {
+        if (U.liveBusy || U.mode !== "live" || token !== U.liveToken) return;
+        for (const c of Object.values(U.C)) { if (c.bubble?.kind === "think") c.bubble = null; c.idleAt = performance.now() + 4000; }
+      }, 2500);
+    }
+  }
+
+  /** Canlı olay → paket + (canlı moddaysa) karakter hareketi */
   function live(ev) {
-    if (!U.world || !U.effects) return;
+    if (!U.world) return;
     const self = U.selfKind, peerK = other(self);
     const fromK = ev.dir === "gelen" ? peerK : self, toK = other(fromK);
-    const colorOf = (k) => U.world.colors[k];
-    const packet = (from, to, label, color, dur = 1300) => { if (U.packets.length < 30) U.packets.push({ from, to, label, color, t0: performance.now(), dur }); kick(); };
-    if (ev.type === "mcp") {
-      const label = ev.method === "tools/call" ? ev.tool : ev.method;
-      if (ev.phase === "start") packet(fromK, toK, label, colorOf(fromK));
-      else packet(toK, fromK, ev.ok === false ? "✕ hata" : `✓ ${label || ""}`, ev.ok === false ? RED : colorOf(toK), 900);
-      return;
+    const C = U.C, W = U.world;
+    if (U.effects) {
+      const packet = (from, to, label, color, dur = 1300) => { if (U.packets.length < 30) U.packets.push({ from, to, label, color, t0: performance.now(), dur }); kick(); };
+      if (ev.type === "mcp") {
+        const label = ev.method === "tools/call" ? ev.tool : ev.method;
+        if (ev.phase === "start") packet(fromK, toK, label, W.colors[fromK]);
+        else packet(toK, fromK, ev.ok === false ? "✕ hata" : `✓ ${label || ""}`, ev.ok === false ? RED : W.colors[toK], 900);
+      } else if (ev.type === "http") packet(fromK, toK, `${ev.method} ${String(ev.path || "").replace(/^\/api/, "")}`.slice(0, 48), AMBER, 1100);
     }
-    if (ev.type === "http") { packet(fromK, toK, `${ev.method} ${String(ev.path || "").replace(/^\/api/, "")}`.slice(0, 48), AMBER, 1100); return; }
-    if (U.scripted) return;
-    const A = U.C[fromK], B = U.C[toK];
+    if (U.mode !== "live" || !U.effects || ev.replay) return;
+    if (ev.server && !U.servers.includes(ev.server)) U.servers = [ev.server, ...U.servers].slice(0, 5);
+    const act = liveAction(ev, self, fromK, toK);
+    if (act) { act.prio = ev.type === "a2a" || ev.type === "rem" || (ev.type === "run" && ev.phase !== "server") ? 2 : 1; liveDo(act); }
+  }
+
+  function liveAction(ev, self, fromK, toK) {
+    const C = U.C, W = U.world, carry = (k) => W.carryFor[k];
+    const mor = C.morpheus, tux = C.unixai;
+    /* ajana soru: soran karşıya gider ve sorar */
     if (ev.type === "a2a" && ev.phase === "start") {
-      U.liveConv = { answer: toK, tools: [] };
-      if (A) { A.target = null; A.bubble = { kind: "say", text: ev.question || "…", t0: performance.now() }; }
-      if (B) B.bubble = { kind: "think", items: ["dinliyor…"], t0: performance.now() };
-      for (const c of Object.values(U.C)) c.idleAt = performance.now() + 60000; // konuşma sürerken gezinmesinler
-      chapter(`CANLI · ${fromK === "unixai" ? "UnixAI" : "MorpheusAI"} → ${toK === "unixai" ? "UnixAI" : "MorpheusAI"}`);
-      status(`● CANLI ${U.world.prompts[fromK]}: ${String(ev.question || "").slice(0, 120)}`);
-      U.cam.follow = null; U.cam.manualUntil = 0;
-      flyTo(A && B ? (A.x + B.x) / 2 : U.cam.tx, A && B && Math.abs(A.x - B.x) > halfView() * 1.6 ? 0.6 : U.cam.tz);
-      setTimeout(() => { if (A?.bubble?.kind === "say" && !U.scripted) A.bubble = null; }, 7000);
-    } else if (ev.type === "step") {
-      const c = U.C[self];
-      if (!c) return;
-      if (ev.phase === "start") {
-        const items = U.liveConv ? (U.liveConv.tools = [...U.liveConv.tools, ev.tool].slice(-4)) : [ev.tool];
-        c.bubble = { kind: "think", items, t0: performance.now() };
-        status(`● CANLI ${U.world.prompts[self]} → ${ev.tool}${ev.where && ev.where !== "yerel" ? ` (${ev.where})` : ""}`);
-      }
-    } else if (ev.type === "a2a" && ev.phase === "end") {
-      if (B) { B.bubble = { kind: "say", text: ev.ok === false ? `Hata: ${ev.error || ""}` : ev.remediations ? `Cevap hazır ✓ ${ev.remediations} playbook yazdım.` : "Cevap hazır ✓", t0: performance.now() }; }
-      if (A && A.bubble?.kind === "say") A.bubble = null;
-      status(`● CANLI cevap geldi · ${ev.durationMs != null ? (ev.durationMs / 1000).toFixed(1) + " sn" : ""}${ev.remediations ? ` · ${ev.remediations} playbook` : ""}`);
-      U.liveConv = null;
-      setTimeout(() => { if (!U.scripted) for (const c of Object.values(U.C)) { c.bubble = null; c.idleAt = performance.now() + 4000; } }, 3000);
+      U.liveConv = { asker: fromK, answer: toK, server: ev.server };
+      if (ev.server) U.mission = ev.server;
+      return async (L) => {
+        const A = C[fromK], B = C[toK];
+        chapter(`● CANLI · ${kname(fromK)} → ${kname(toK)}`);
+        status(`● ${W.prompts[fromK]}: ${String(ev.question || "").slice(0, 140)}`);
+        A.carry = carry("mail");
+        await L.meet(A, B);
+        A.carry = null;
+        L.think(B, ["dinliyor…"]);
+        await L.say(A, ev.question || "…");
+        L.think(B, ["düşünüyor…"]);
+      };
     }
+    if (ev.type === "a2a" && ev.phase === "end") {
+      const conv = U.liveConv || { asker: fromK, answer: toK, server: ev.server };
+      U.liveConv = null;
+      return async (L) => {
+        const A = C[conv.asker], B = C[conv.answer];
+        if (B && A && Math.abs(B.x - A.x) > 140) await L.meet(B, A);
+        const msg = ev.ok === false ? `Hata: ${ev.error || ""}` : ev.remediations ? `Cevap hazır ✓ ${ev.remediations} playbook yazdım, onayınızı bekliyor.` : "Cevap hazır ✓";
+        status(`● Cevap · ${(ev.durationMs / 1000 || 0).toFixed(1)} sn${ev.remediations ? ` · ${ev.remediations} playbook` : ""}`);
+        await L.say(B, msg, 2600);
+        if (ev.remediations && (ev.server || conv.server)) {
+          const srv = ev.server || conv.server;
+          chapter(`● Görev · ${srv}`);
+          mor.carry = carry("pill");
+          await Promise.all([L.go(tux, "rack", srv), L.go(mor, "rack", srv)]);
+          U.alerts[srv] = "pending";
+          await L.say(mor, "Playbook hazır. Onay gelince AAP'de çalıştırırız.", 2600);
+        } else {
+          await Promise.all([L.go(A, "home"), L.go(B, "home")]);
+        }
+      };
+    }
+    /* ajanın kendi araç adımları */
+    if (ev.type === "step" && ev.phase === "start") {
+      const me = C[self], tool = String(ev.tool || "");
+      if (/agent_ask$/.test(tool)) return null;
+      return async (L) => {
+        status(`● ${W.prompts[self]} → ${tool}${ev.where && ev.where !== "yerel" ? ` (${ev.where})` : ""}`);
+        if (/create_remediation/.test(tool) && self === "morpheus") {
+          await L.go(me, "forge"); W.liveFx("forge", true, me);
+          await L.wait(1500); W.liveFx("forge", false, me);
+          me.action = null;
+        } else if (/launch_remediation/.test(tool)) {
+          await L.go(me, "console"); await L.wait(900);
+        } else if (/server_findings|server_status|diagnostic|collect|list_servers|fleet/.test(tool) && self === "unixai") {
+          const srv = (U.liveConv && U.liveConv.server) || U.mission;
+          await L.go(me, "rack", srv); W.liveFx("rack", true, me); await L.wait(1200);
+        } else {
+          L.think(me, [tool]); await L.wait(900);
+        }
+      };
+    }
+    /* toplama (UnixAI): Tux rack'leri dolaşır */
+    if (ev.type === "run") {
+      if (ev.phase === "start") return async (L) => { chapter("● Toplama başladı"); await L.say(tux, `Toplama başladı · ${(ev.servers || []).length} sunucu`, 1800); };
+      if (ev.phase === "server") return async (L) => {
+        U.alerts[ev.server] = ev.ok === false ? "alert" : ev.p1 ? "alert" : "ok";
+        status(`● ${ev.server}: ${ev.ok === false ? "toplanamadı" : `skor ${ev.score}${ev.p1 ? ` · ${ev.p1} P1` : ""}`}`);
+        await L.go(tux, "rack", ev.server); await L.wait(700);
+      };
+      return async (L) => { await L.say(tux, `Toplama bitti (${ev.status})`, 1600); await L.go(tux, "home"); };
+    }
+    /* düzeltme akışı (MorpheusAI'nin kendi olayları) */
+    if (ev.type === "rem") {
+      const srv = ev.server;
+      switch (ev.stage) {
+        case "received": if (U.liveConv) return null;
+          return async (L) => { chapter("● Yeni bulgu"); tux.carry = carry("mail"); await L.meet(tux, mor); tux.carry = null; await L.say(tux, `Yeni bulgu: ${srv || ""}`, 1800); await L.go(tux, "home"); };
+        case "generated": return async (L) => {
+          await L.go(mor, "forge"); W.liveFx("forge", true, mor); await L.wait(1400); W.liveFx("forge", false, mor); mor.action = null;
+          await L.say(mor, `Playbook hazır · uyum ${ev.score ?? "?"}`, 1800);
+        };
+        case "approved": return async (L) => { chapter("● Onay geldi"); mor.carry = carry("pill"); await L.say(mor, `Onay geldi ✓ ${String(ev.by || "").slice(0, 40)}`, 2000); };
+        case "rejected": return async (L) => { mor.carry = null; await L.say(mor, "Reddedildi ✕", 1600); await L.go(mor, "home"); };
+        case "commit": return async (L) => { await L.go(mor, "vault"); W.liveFx("vault", true, mor); await L.say(mor, "Bitbucket'a commit edildi", 1500); W.liveFx("vault", false, mor); };
+        case "sync": case "template": return async (L) => { await L.go(mor, "console"); await L.say(mor, ev.stage === "sync" ? "AAP projesi güncellendi" : "Job template hazır", 1300); };
+        case "launch": return async (L) => {
+          if (ev.mode === "run" && srv) { chapter(`● Uygulama · ${srv}`); await Promise.all([L.go(mor, "rack", srv), L.go(tux, "rack", srv)]); await L.say(mor, "Sunucuya uygulanıyor…", 1800); }
+          else { await L.go(mor, "console"); await L.say(mor, "AAP'de check (dry-run) başladı", 1600); }
+        };
+        case "job": return async (L) => {
+          const ok = /successful/.test(ev.text || "");
+          if (srv && ok && /Gerçek/.test(ev.text || "")) U.alerts[srv] = "ok";
+          await L.say(mor, `${ok ? "✓" : "✕"} ${String(ev.text || "").slice(0, 60)}`, 2000);
+        };
+        case "failed": return async (L) => { await L.say(mor, `Hata: ${String(ev.text || "").slice(0, 80)}`, 2200); };
+        default: return null;
+      }
+    }
+    /* UnixAI tarafında REST isteklerinden (Morpheus kendi 'rem' olaylarını kullanır) */
+    if (ev.type === "http" && self === "unixai" && ev.method === "POST") {
+      const p = String(ev.path || "");
+      if (/^\/api\/remediations$/.test(p)) return async (L) => { chapter("● Bulgu MorpheusAI'ye"); tux.carry = carry("mail"); await L.meet(tux, mor); tux.carry = null; await L.say(tux, "Bu bulguya bir playbook lazım.", 1800); await L.go(tux, "home"); };
+      if (/\/approve$/.test(p)) return async (L) => {
+        chapter("● Onay gönderildi"); mor.carry = carry("pill");
+        await L.say(mor, `Onay geldi ✓ ${String(ev.by || "").slice(0, 40)}`, 1800);
+        await L.go(mor, "vault"); W.liveFx("vault", true, mor); await L.wait(900); W.liveFx("vault", false, mor);
+        await L.go(mor, "console"); await L.say(mor, "AAP'de check başladı", 1500);
+      };
+      if (/\/reject$/.test(p)) return async (L) => { mor.carry = null; await L.say(mor, "Reddedildi ✕", 1500); };
+      if (/\/publish$/.test(p)) return async (L) => { await L.go(mor, "vault"); await L.say(mor, "Bitbucket'a tekrar gönderiliyor", 1500); };
+      if (/\/launch$/.test(p)) return async (L) => { await L.go(mor, "console"); await L.say(mor, "AAP'de çalıştırılıyor", 1500); };
+    }
+    return null;
   }
 
   /* ================================================================== */
@@ -1592,6 +1799,8 @@
     if (!record || !detail || !U.world) return;
     U.lastPlay = { record, detail };
     const token = ++U.playToken;
+    U.mode = "film"; U.liveToken++; U.liveQ = []; U.liveConv = null;
+    U.stage?.querySelector("#uvLiveMode")?.classList.remove("on");
     const W = U.world;
     if (record.server && !U.servers.includes(record.server)) U.servers = [record.server, ...U.servers].slice(0, 5);
     if (record.server) U.mission = record.server;
@@ -1682,5 +1891,5 @@
     U.statsEl.innerHTML = `<b>${items.length}</b> konuşma · <b>${pb}</b> playbook · <b>${servers.length}</b> sunucu`;
   }
 
-  window.Universe = { mount, play, setStats, live, worlds: () => Object.values(WORLDS).map((w) => ({ id: w.id, label: w.label })) };
+  window.Universe = { mount, play, setStats, live, liveMode, mode: () => U.mode, worlds: () => Object.values(WORLDS).map((w) => ({ id: w.id, label: w.label })) };
 })();
