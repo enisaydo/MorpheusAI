@@ -339,6 +339,13 @@
           </div>
         </div>
         <div class="uv-stage" id="uvStage" data-self="morpheus"></div>
+        <div class="uv-live" id="uvLive">
+          <div class="uv-live-h"><span class="uv-dot" id="uvLiveDot"></span><b>CANLI</b><span class="muted sm">MCP · REST (GET/POST) · ajan adımları</span>
+            <span class="muted sm" id="uvLiveState">bağlanıyor…</span><span class="toolbar-spacer"></span>
+            <label class="check sm"><input type="checkbox" id="uvAuto" checked /> Biteni oynat</label>
+            <button type="button" class="btn sm" id="uvLivePause">Duraklat</button><button type="button" class="btn sm" id="uvLiveClear">Temizle</button></div>
+          <div class="uv-live-feed" id="uvLiveFeed" aria-live="polite"><div class="lv-empty">Henüz canlı istek yok. Bir ajan diğerine MCP üzerinden bir şey sorduğunda burada anında görünür.</div></div>
+        </div>
         <div class="a2a-layout">
           <div class="card a2a-list" id="a2aList"></div>
           <div class="card a2a-detail" id="a2aDetail"></div>

@@ -37,7 +37,7 @@
     selfKind: "unixai", world: null, servers: [], alerts: {}, mission: null, playToken: 0, scripted: false, lastPlay: null,
     statusEl: null, chapterEl: null, statsEl: null, skip: null,
     cam: { x: 400, z: 1, tx: 400, tz: 1, follow: null, manualUntil: 0 },
-    orb: null, sparks: [], codeBits: [], items: [], drag: null, fx: {}, C: {},
+    orb: null, sparks: [], codeBits: [], items: [], drag: null, fx: {}, C: {}, packets: [], liveConv: null,
   };
   const serverList = () => (U.servers.length ? U.servers.slice(0, 5) : DEFAULT_SERVERS);
 
@@ -1210,7 +1210,7 @@
     U.C = {};
     for (const [k, c] of Object.entries(W.makeChars()))
       U.C[k] = { target: null, onArrive: null, phase: 0, walking: false, alpha: 1, fade: 0, bubble: null, carry: null, idleAt: performance.now() + 2500, ...c };
-    U.fx = {}; U.items = []; U.orb = null; U.sparks = []; U.codeBits = []; U.scripted = false;
+    U.fx = {}; U.items = []; U.orb = null; U.sparks = []; U.codeBits = []; U.scripted = false; U.packets = []; U.liveConv = null;
     if (U.skip) { const s = U.stage.querySelector("#uvSkip"); s && s.classList.add("hidden"); U.skip = null; }
     U.cam.follow = null;
     U.cam.x = U.cam.tx = W.home(U.selfKind); U.cam.z = U.cam.tz = 1;
@@ -1362,6 +1362,7 @@
     for (const c of chars) drawChar(ctx, c);
     drawOrb(ctx);
     drawParticles(ctx);
+    drawPackets(ctx);
     if (W.drawFront) W.drawFront(ctx);
     for (const c of chars) drawBubble(ctx, c);
     ctx.setTransform(U.dpr, 0, 0, U.dpr, 0, 0);
@@ -1460,6 +1461,82 @@
     ctx.font = "11px 'Red Hat Mono', monospace"; ctx.textAlign = "center";
     for (const p of U.codeBits) { ctx.globalAlpha = clamp(p.life, 0, 1); ctx.fillStyle = GREEN; ctx.fillText(p.ch, p.x, p.y); }
     ctx.globalAlpha = 1;
+  }
+
+  /* ================================================================== */
+  /*  Canlı olaylar (SSE /api/live): her istek karakterler arasında uçan bir paket */
+  /* ================================================================== */
+  function drawPackets(ctx) {
+    const now = performance.now();
+    U.packets = U.packets.filter((p) => now - p.t0 < p.dur + 400);
+    for (const p of U.packets) {
+      const a = U.C[p.from], b = U.C[p.to];
+      if (!a || !b) continue;
+      const k = clamp((now - p.t0) / p.dur, 0, 1), e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+      const x1 = a.x, x2 = b.x, y0 = GROUND + U.world.headY(a) - 20, y3 = GROUND + U.world.headY(b) - 20;
+      const peak = Math.min(y0, y3) - 50 - Math.min(120, Math.abs(x2 - x1) * 0.15);
+      const pos = (t) => ({ x: x1 + (x2 - x1) * t, y: (1 - t) * (1 - t) * y0 + 2 * (1 - t) * t * peak + t * t * y3 });
+      for (let i = 8; i >= 0; i--) {
+        const q = pos(Math.max(0, e - i * 0.02));
+        ctx.globalAlpha = (1 - i / 9) * (k >= 1 ? Math.max(0, 1 - (now - p.t0 - p.dur) / 400) : 1);
+        glow(ctx, p.color, i ? 6 : 18); ctx.fillStyle = i ? p.color : "#fff";
+        ctx.beginPath(); ctx.arc(q.x, q.y, i ? 2.4 : 4.5, 0, Math.PI * 2); ctx.fill();
+      }
+      noGlow(ctx);
+      if (p.label && k < 1) {
+        const q = pos(e);
+        ctx.font = "600 10px 'Red Hat Mono', monospace";
+        const w = ctx.measureText(p.label).width + 12;
+        ctx.globalAlpha = 0.95; ctx.fillStyle = U.world.dark ? "rgba(1,12,6,0.9)" : "rgba(255,255,255,0.95)";
+        rrect(ctx, q.x - w / 2, q.y - 24, w, 15, 7); ctx.fill();
+        ctx.strokeStyle = p.color; ctx.lineWidth = 1; ctx.stroke();
+        text(ctx, p.label, q.x, q.y - 13, "600 10px 'Red Hat Mono', monospace", U.world.dark ? "#e6ffee" : "#072146");
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  /** Canlı olay: sahnede tepki (paket, balon); film oynarken yalnızca paket eklenir */
+  function live(ev) {
+    if (!U.world || !U.effects) return;
+    const self = U.selfKind, peerK = other(self);
+    const fromK = ev.dir === "gelen" ? peerK : self, toK = other(fromK);
+    const colorOf = (k) => U.world.colors[k];
+    const packet = (from, to, label, color, dur = 1300) => { if (U.packets.length < 30) U.packets.push({ from, to, label, color, t0: performance.now(), dur }); kick(); };
+    if (ev.type === "mcp") {
+      const label = ev.method === "tools/call" ? ev.tool : ev.method;
+      if (ev.phase === "start") packet(fromK, toK, label, colorOf(fromK));
+      else packet(toK, fromK, ev.ok === false ? "✕ hata" : `✓ ${label || ""}`, ev.ok === false ? RED : colorOf(toK), 900);
+      return;
+    }
+    if (ev.type === "http") { packet(fromK, toK, `${ev.method} ${String(ev.path || "").replace(/^\/api/, "")}`.slice(0, 48), AMBER, 1100); return; }
+    if (U.scripted) return;
+    const A = U.C[fromK], B = U.C[toK];
+    if (ev.type === "a2a" && ev.phase === "start") {
+      U.liveConv = { answer: toK, tools: [] };
+      if (A) { A.target = null; A.bubble = { kind: "say", text: ev.question || "…", t0: performance.now() }; }
+      if (B) B.bubble = { kind: "think", items: ["dinliyor…"], t0: performance.now() };
+      for (const c of Object.values(U.C)) c.idleAt = performance.now() + 60000; // konuşma sürerken gezinmesinler
+      chapter(`CANLI · ${fromK === "unixai" ? "UnixAI" : "MorpheusAI"} → ${toK === "unixai" ? "UnixAI" : "MorpheusAI"}`);
+      status(`● CANLI ${U.world.prompts[fromK]}: ${String(ev.question || "").slice(0, 120)}`);
+      U.cam.follow = null; U.cam.manualUntil = 0;
+      flyTo(A && B ? (A.x + B.x) / 2 : U.cam.tx, A && B && Math.abs(A.x - B.x) > halfView() * 1.6 ? 0.6 : U.cam.tz);
+      setTimeout(() => { if (A?.bubble?.kind === "say" && !U.scripted) A.bubble = null; }, 7000);
+    } else if (ev.type === "step") {
+      const c = U.C[self];
+      if (!c) return;
+      if (ev.phase === "start") {
+        const items = U.liveConv ? (U.liveConv.tools = [...U.liveConv.tools, ev.tool].slice(-4)) : [ev.tool];
+        c.bubble = { kind: "think", items, t0: performance.now() };
+        status(`● CANLI ${U.world.prompts[self]} → ${ev.tool}${ev.where && ev.where !== "yerel" ? ` (${ev.where})` : ""}`);
+      }
+    } else if (ev.type === "a2a" && ev.phase === "end") {
+      if (B) { B.bubble = { kind: "say", text: ev.ok === false ? `Hata: ${ev.error || ""}` : ev.remediations ? `Cevap hazır ✓ ${ev.remediations} playbook yazdım.` : "Cevap hazır ✓", t0: performance.now() }; }
+      if (A && A.bubble?.kind === "say") A.bubble = null;
+      status(`● CANLI cevap geldi · ${ev.durationMs != null ? (ev.durationMs / 1000).toFixed(1) + " sn" : ""}${ev.remediations ? ` · ${ev.remediations} playbook` : ""}`);
+      U.liveConv = null;
+      setTimeout(() => { if (!U.scripted) for (const c of Object.values(U.C)) { c.bubble = null; c.idleAt = performance.now() + 4000; } }, 3000);
+    }
   }
 
   /* ================================================================== */
@@ -1605,5 +1682,5 @@
     U.statsEl.innerHTML = `<b>${items.length}</b> konuşma · <b>${pb}</b> playbook · <b>${servers.length}</b> sunucu`;
   }
 
-  window.Universe = { mount, play, setStats, worlds: () => Object.values(WORLDS).map((w) => ({ id: w.id, label: w.label })) };
+  window.Universe = { mount, play, setStats, live, worlds: () => Object.values(WORLDS).map((w) => ({ id: w.id, label: w.label })) };
 })();

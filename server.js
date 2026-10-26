@@ -23,6 +23,7 @@ const genai = require("./lib/genai");
 const aap = require("./lib/aap");
 const logger = require("./lib/logger");
 const oplog = require("./lib/oplog");
+const live = require("./lib/live");
 const bitbucket = require("./lib/bitbucket");
 const prompts = require("./lib/prompts");
 const usage = require("./lib/usage");
@@ -318,6 +319,8 @@ async function handleApi(req, res, url) {
       return sendJson(res, 200, { items: remediation.list({ status: url.searchParams.get("status") || undefined, server: url.searchParams.get("server") || undefined }), config: remediation.config() });
     case "POST /api/remediations":
       return sendJson(res, 201, await remediation.create(json, STANDARDS, who, { ai: MODE === "genai" }));
+    case "GET /api/live":
+      return live.handle(req, res, url);
     case "GET /api/oplogs":
       if (session && !session.isAdmin) return sendJson(res, 403, { error: "Log dosyaları için yönetici yetkisi gerekiyor" });
       return sendJson(res, 200, { dir: oplog.LOG_DIR, categories: oplog.files() });
@@ -448,7 +451,16 @@ async function handleMcp(req, res) {
   const ai = MODE === "genai";
   const one = async (x) => {
     const t0 = Date.now();
+    const show = x?.method && !String(x.method).startsWith("notifications/");
+    const rId = live.rid();
+    if (show) live.publish("mcp", { dir: "gelen", peer: principal.client, method: x.method, tool: x.params?.name,
+      args: x.method === "tools/call" ? live.argsPreview(x.params?.arguments) : undefined, phase: "start", rid: rId });
     const r = await mcpHub.handleRpc(x, principal, ai);
+    if (show) {
+      const bad = Boolean(r?.error || r?.result?.isError);
+      live.publish("mcp", { dir: "gelen", peer: principal.client, method: x.method, tool: x.params?.name, phase: "end", rid: rId, ok: !bad,
+        durationMs: Date.now() - t0, error: bad ? live.short(r?.error?.message || r?.result?.content?.[0]?.text, 200) : undefined });
+    }
     if (x?.method && !String(x.method).startsWith("notifications/")) {
       const isErr = Boolean(r?.error || r?.result?.isError);
       oplog.log("mcp-sunucu", x.method === "tools/call" ? `Araç çağrıldı: ${x.params?.name}` : x.method, {
@@ -494,6 +506,10 @@ const server = http
   .createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const t0 = Date.now();
+    if (url.pathname.startsWith("/api/") && url.pathname !== "/api/live" && /^Bearer\s/i.test(req.headers.authorization || ""))
+      res.on("finish", () => live.publish("http", { dir: "gelen", peer: String(req.headers["x-morpheus-client"] || req._who?.user || "api").slice(0, 40),
+        method: req.method, path: url.pathname, status: res.statusCode, ok: res.statusCode < 400, durationMs: Date.now() - t0,
+        by: req.headers["x-approved-by"] ? String(req.headers["x-approved-by"]).slice(0, 80) : undefined }));
     if (url.pathname.startsWith("/api/") && req.method !== "GET" && req.method !== "OPTIONS" && url.pathname !== "/api/auth/login")
       res.on("finish", () => oplog.log("islem", actionLabel(req.method, url.pathname), {
         user: req._who?.user || null, ip: clientIp(req), method: req.method, path: url.pathname, status: res.statusCode,

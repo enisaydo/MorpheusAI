@@ -47,7 +47,7 @@ function route() {
   if (r === "usage") loadUsage();
   if (r === "history") loadHistory();
   if (r === "agent") loadAgentPage();
-  if (r === "a2a") loadA2A();
+  if (r === "a2a") { loadA2A(); liveStart(); } else if (State.live) liveStop();
   if (r === "remediations") { loadRemediations(); if (arg) showRemediation(decodeURIComponent(arg)); }
   if (r === "settings") loadLimits();
   setLogAuto(r === "logs" && $("#logAuto").checked);
@@ -1666,6 +1666,108 @@ function bindA2A() {
   if ($("#a2aRefresh")) $("#a2aRefresh").onclick = () => loadA2A();
 }
 
+/* ================================================================== */
+/*  Canlı akış (SSE /api/live): MCP ve uygulamalar arası istekler anında */
+/* ================================================================== */
+State.live = { es: null, paused: false, rows: new Map(), lastId: 0, refreshT: null };
+const LIVE_SELF = SELF_SHORT === "Morpheus" ? "MorpheusAI" : "UnixAI";
+const liveTime = (iso) => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleTimeString("tr-TR", { hour12: false }); };
+const liveDur = (ms) => (ms == null ? "" : ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} sn`);
+
+function liveStart() {
+  if (State.live.es || !window.EventSource || !$("#uvLiveFeed")) return;
+  const es = new EventSource("/api/live" + (State.live.lastId ? `?since=${State.live.lastId}` : ""));
+  State.live.es = es;
+  es.addEventListener("live", (m) => {
+    let ev;
+    try { ev = JSON.parse(m.data); } catch { return; }
+    if (ev.id <= State.live.lastId) return;
+    State.live.lastId = ev.id;
+    liveEvent(ev);
+  });
+  es.onopen = () => liveState(true);
+  es.onerror = () => liveState(false);
+}
+function liveStop() {
+  if (State.live.es) { State.live.es.close(); State.live.es = null; }
+  liveState(false, "kapalı");
+}
+function liveState(on, txt) {
+  $("#uvLiveDot")?.classList.toggle("on", on);
+  if ($("#uvLiveState")) $("#uvLiveState").textContent = txt || (on ? "bağlı — yeni istekler anında görünür" : "bağlantı koptu, yeniden bağlanıyor…");
+}
+
+function liveWho(ev) {
+  const peer = ev.peer || "?";
+  return ev.dir === "gelen" ? `${peer} → ${LIVE_SELF}` : `${LIVE_SELF} → ${peer}`;
+}
+function liveRow(e) {
+  const end = e.phase === "end" || e.type === "http";
+  const res = !end ? `<span class="lv-run">çalışıyor…</span>` : e.ok === false ? `<span class="lv-bad">✕ ${esc(e.error || e.status || "hata")}</span>`
+    : `<span class="lv-ok">✓ ${e.status ? esc(e.status) + " · " : ""}${esc(liveDur(e.durationMs))}</span>`;
+  const t = `<span class="lv-t">${esc(liveTime(e.time))}</span>`;
+  if (e.type === "a2a") {
+    return `${t}<span class="lv-tag a2a">AJAN</span><b>${esc(liveWho(e))}</b> ${e.server ? `<code>${esc(e.server)}</code>` : ""} ${res}
+      ${e.question ? `<div class="lv-q">❝ ${esc(e.question)} ❞</div>` : ""}
+      ${end && e.answer ? `<div class="lv-a">↳ ${esc(e.answer)}${e.remediations ? ` <span class="label gold">${e.remediations} playbook</span>` : ""}</div>` : ""}`;
+  }
+  if (e.type === "step") return `${t}<span class="lv-tag step">ADIM</span><span class="lv-ind">⚙ <code>${esc(e.tool)}</code> <span class="muted">${esc(e.where || "")}</span></span> ${res}`;
+  if (e.type === "http") return `${t}<span class="lv-tag http">REST</span><b>${esc(liveWho(e))}</b> <code>${esc(e.method)} ${esc(e.path)}</code>${e.by ? ` <span class="muted">onaylayan ${esc(e.by)}</span>` : ""} ${res}`;
+  const what = e.method === "tools/call" ? e.tool : e.method;
+  return `${t}<span class="lv-tag mcp">MCP</span><b>${esc(liveWho(e))}</b> <code>${esc(what || "")}</code>${e.args ? ` <span class="lv-args">${esc(e.args)}</span>` : ""} ${res}`;
+}
+
+function liveEvent(ev) {
+  if (window.Universe?.live) Universe.live(ev);
+  if (ev.type === "a2a" && ev.phase === "end") liveConversationDone();
+  const feed = $("#uvLiveFeed");
+  if (!feed || State.live.paused) return;
+  feed.querySelector(".lv-empty")?.remove();
+  const key = ev.rid ? `${ev.type}:${ev.rid}` : null;
+  let row = key ? State.live.rows.get(key) : null;
+  if (row) row._ev = { ...row._ev, ...ev };
+  else {
+    row = document.createElement("div");
+    row._ev = ev;
+    feed.prepend(row);
+    if (key) State.live.rows.set(key, row);
+  }
+  const e = row._ev;
+  row.className = `lv-row lv-${e.type} ${e.dir || ""} ${e.phase === "start" ? "run" : ""} ${e.ok === false ? "bad" : ""}`;
+  row.innerHTML = liveRow(e);
+  row.classList.remove("flash"); void row.offsetWidth; row.classList.add("flash");
+  while (feed.children.length > 150) {
+    const last = feed.lastElementChild;
+    for (const [k, v] of State.live.rows) if (v === last) State.live.rows.delete(k);
+    last.remove();
+  }
+}
+
+/** Konuşma bitince liste yenilenir; "otomatik oynat" açıksa yeni konuşma film olarak oynar */
+function liveConversationDone() {
+  clearTimeout(State.live.refreshT);
+  State.live.refreshT = setTimeout(async () => {
+    if (!$("#a2aList")) return;
+    if ($("#uvAuto")?.checked) { State.a2a.sel = null; return loadA2A(); }
+    try {
+      const r = await Api.a2a({ server: State.a2a.server, peer: State.a2a.peer });
+      $("#a2aList").innerHTML = a2aList(r.items);
+      if (window.Universe) Universe.setStats(r.items);
+    } catch {}
+  }, 900);
+}
+
+function bindLive() {
+  if (!$("#uvLiveFeed")) return;
+  try { $("#uvAuto").checked = localStorage.getItem("universe.autoplay") !== "off"; } catch {}
+  $("#uvAuto").onchange = (e) => { try { localStorage.setItem("universe.autoplay", e.target.checked ? "on" : "off"); } catch {} };
+  $("#uvLivePause").onclick = (e) => {
+    State.live.paused = !State.live.paused;
+    e.target.textContent = State.live.paused ? "Devam" : "Duraklat";
+  };
+  $("#uvLiveClear").onclick = () => { State.live.rows.clear(); $("#uvLiveFeed").innerHTML = `<div class="lv-empty">Temizlendi. Yeni istekler burada belirecek.</div>`; };
+}
+
 function bindEvents() {
   addEventListener("hashchange", route);
   $("#menuBtn").onclick = () => $("#sidebar").classList.toggle("open");
@@ -1775,6 +1877,7 @@ function bindEvents() {
   bindAgentPage();
   bindOplogs();
   bindA2A();
+  bindLive();
   // düzeltmeler
   $("#remRefresh").onclick = loadRemediations;
   $("#remStatus").onclick = (e) => {
