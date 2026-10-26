@@ -1624,8 +1624,9 @@
         const label = ev.method === "tools/call" ? ev.tool : ev.method;
         if (ev.phase === "start") packet(fromK, toK, label, W.colors[fromK]);
         else packet(toK, fromK, ev.ok === false ? "✕ hata" : `✓ ${label || ""}`, ev.ok === false ? RED : W.colors[toK], 900);
-      } else if (ev.type === "http") packet(fromK, toK, `${ev.method} ${String(ev.path || "").replace(/^\/api/, "")}`.slice(0, 48), AMBER, 1100);
+      } else if (ev.type === "http" && ev.method !== "GET") packet(fromK, toK, `${ev.method} ${String(ev.path || "").replace(/^\/api/, "")}`.slice(0, 48), AMBER, 1100);
     }
+    if (ev.type === "rem" && !ev.replay) U.remSeenAt = performance.now();
     if (U.mode !== "live" || !U.effects || ev.replay) return;
     if (ev.server && !U.servers.includes(ev.server)) U.servers = [ev.server, ...U.servers].slice(0, 5);
     const act = liveAction(ev, self, fromK, toK);
@@ -1708,7 +1709,8 @@
       switch (ev.stage) {
         case "received": if (U.liveConv) return null;
           return async (L) => { chapter("● Yeni bulgu"); tux.carry = carry("mail"); await L.meet(tux, mor); tux.carry = null; await L.say(tux, `Yeni bulgu: ${srv || ""}`, 1800); await L.go(tux, "home"); };
-        case "generated": return async (L) => {
+        case "generated": if (self === "morpheus" && U.liveConv) return null; // ajan adımı zaten örse götürüyor
+          return async (L) => {
           await L.go(mor, "forge"); W.liveFx("forge", true, mor); await L.wait(1400); W.liveFx("forge", false, mor); mor.action = null;
           await L.say(mor, `Playbook hazır · uyum ${ev.score ?? "?"}`, 1800);
         };
@@ -1729,8 +1731,8 @@
         default: return null;
       }
     }
-    /* UnixAI tarafında REST isteklerinden (Morpheus kendi 'rem' olaylarını kullanır) */
-    if (ev.type === "http" && self === "unixai" && ev.method === "POST") {
+    /* REST isteklerinden — yalnızca düzeltme akışı (rem) olayları gelmiyorsa (aynı iş iki kez oynamasın) */
+    if (ev.type === "http" && self === "unixai" && ev.method === "POST" && performance.now() - (U.remSeenAt ?? -1e9) > 300000) {
       const p = String(ev.path || "");
       if (/^\/api\/remediations$/.test(p)) return async (L) => { chapter("● Bulgu MorpheusAI'ye"); tux.carry = carry("mail"); await L.meet(tux, mor); tux.carry = null; await L.say(tux, "Bu bulguya bir playbook lazım.", 1800); await L.go(tux, "home"); };
       if (/\/approve$/.test(p)) return async (L) => {

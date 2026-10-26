@@ -321,6 +321,8 @@ async function handleApi(req, res, url) {
       return sendJson(res, 201, await remediation.create(json, STANDARDS, who, { ai: MODE === "genai" }));
     case "GET /api/live":
       return live.handle(req, res, url);
+    case "GET /api/remediations/events":
+      return live.handle(req, res, url, (e) => e.type === "rem");
     case "GET /api/oplogs":
       if (session && !session.isAdmin) return sendJson(res, 403, { error: "Log dosyaları için yönetici yetkisi gerekiyor" });
       return sendJson(res, 200, { dir: oplog.LOG_DIR, categories: oplog.files() });
@@ -506,7 +508,7 @@ const server = http
   .createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const t0 = Date.now();
-    if (url.pathname.startsWith("/api/") && url.pathname !== "/api/live" && /^Bearer\s/i.test(req.headers.authorization || ""))
+    if (url.pathname.startsWith("/api/") && url.pathname !== "/api/live" && url.pathname !== "/api/remediations/events" && /^Bearer\s/i.test(req.headers.authorization || ""))
       res.on("finish", () => live.publish("http", { dir: "gelen", peer: String(req.headers["x-morpheus-client"] || req._who?.user || "api").slice(0, 40),
         method: req.method, path: url.pathname, status: res.statusCode, ok: res.statusCode < 400, durationMs: Date.now() - t0,
         by: req.headers["x-approved-by"] ? String(req.headers["x-approved-by"]).slice(0, 80) : undefined }));

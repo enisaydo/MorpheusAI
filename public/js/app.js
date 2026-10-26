@@ -1720,7 +1720,7 @@ function liveRow(e) {
     if (e.phase === "end") return `${t}<span class="lv-tag run">TOPLAMA</span><b>Toplama bitti</b> · ${esc(e.status || "")}`;
     return `${t}<span class="lv-tag run">TOPLAMA</span><code>${esc(e.server)}</code> ${e.ok === false ? `<span class="lv-bad">✕ ${esc(e.error || "")}</span>` : `<span class="lv-ok">✓ skor ${esc(e.score)}${e.p1 ? ` · P1 ${e.p1}` : ""}</span>`}`;
   }
-  if (e.type === "rem") return `${t}<span class="lv-tag rem">AKIŞ</span><code>${esc(e.id)}</code> ${esc(e.text)} <span class="muted">${esc(e.by || "")}</span>`;
+  if (e.type === "rem") return `${t}<span class="lv-tag rem">AKIŞ</span>${e.src ? `<span class="muted">MorpheusAI:</span> ` : ""}<code>${esc(e.rem)}</code> ${esc(e.text)} <span class="muted">${esc(e.by || "")}</span>`;
   if (e.type === "step") return `${t}<span class="lv-tag step">ADIM</span><span class="lv-ind">⚙ <code>${esc(e.tool)}</code> <span class="muted">${esc(e.where || "")}</span></span> ${res}`;
   if (e.type === "http") return `${t}<span class="lv-tag http">REST</span><b>${esc(liveWho(e))}</b> <code>${esc(e.method)} ${esc(e.path)}</code>${e.by ? ` <span class="muted">onaylayan ${esc(e.by)}</span>` : ""} ${res}`;
   const what = e.method === "tools/call" ? e.tool : e.method;
@@ -1732,6 +1732,11 @@ function liveEvent(ev) {
   if (ev.type === "a2a" && ev.phase === "end" && !ev.replay) liveConversationDone();
   const feed = $("#uvLiveFeed");
   if (!feed || State.live.paused) return;
+  if (ev.type === "http" && ev.method === "GET" && !$("#uvShowGet")?.checked) { // durum sorguları varsayılan gizli, yalnızca sayılır
+    State.live.hiddenGet = (State.live.hiddenGet || 0) + 1;
+    if ($("#uvGetCount")) $("#uvGetCount").textContent = `${State.live.hiddenGet} gizli`;
+    return;
+  }
   feed.querySelector(".lv-empty")?.remove();
   const key = ev.rid ? `${ev.type}:${ev.rid}` : null;
   let row = key ? State.live.rows.get(key) : null;
