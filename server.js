@@ -320,6 +320,8 @@ async function handleApi(req, res, url) {
       return sendJson(res, 200, { items: remediation.list({ status: url.searchParams.get("status") || undefined, server: url.searchParams.get("server") || undefined }), config: remediation.config() });
     case "POST /api/remediations":
       return sendJson(res, 201, await remediation.create(json, STANDARDS, who, { ai: MODE === "genai" }));
+    case "GET /api/pixel/status":
+      return sendJson(res, 200, require("./lib/pixel").status());
     case "GET /api/tracing/status":
       return sendJson(res, 200, await tracing.status());
     case "GET /api/live":
@@ -529,6 +531,7 @@ const server = http
     }
   })
   .listen(PORT, () => {
+    require("./lib/pixel").hello(); // PIXEL_OFFICE=true ise karakterleri yerel ofise al
     const s = genai.status();
     const desc = {
       genai: `GENAI → token: ${s.tokenHost} · chat: ${s.chatHost}`,

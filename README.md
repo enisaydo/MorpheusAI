@@ -140,7 +140,8 @@ Genel Bakış'taki "son skor" bu kayıtlardan okunur; servis yeniden başlatıl�
 
 MorpheusAI ajanı, açık kaynak Pixel Agents ofisinde UnixAI ajanıyla birlikte karakter olarak görünür
 (playbook yazarken, onay beklerken izin balonu). Kurulum ve köprü: UnixAI-OS deposunda `integrations/pixel-office/`.
-Köprü MorpheusAI'nin `/api/live` akışını okur; giriş açıksa `MORPHEUS_API_TOKEN` gerekir.
+Köprü gerekmez: `.env`'de `PIXEL_OFFICE=true` olunca MorpheusAI aynı makinedeki Pixel Agents ofisine olayları
+doğrudan gönderir (token `~/.pixel-agents/` altından otomatik bulunur). Durum: `GET /api/pixel/status`.
 
 ## Ajan izleme arayüzü (Langfuse)
 
