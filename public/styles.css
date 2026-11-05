@@ -443,3 +443,10 @@ textarea.input { resize: vertical; }
 #olFile { margin: 4px 0 10px; }
 .ol-json { max-height: 360px; overflow: auto; white-space: pre; font-size: 11.5px; min-width: 380px; }
 tr.row-err td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
+
+/* MCP bağlantısı: header satırları */
+.hdr-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(160px, 2fr) auto auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+.conn-json { margin-bottom: 12px; }
+.conn-json summary { cursor: pointer; font-weight: 500; }
+.conn-json textarea { margin: 8px 0; width: 100%; }
+@media (max-width: 640px) { .hdr-row { grid-template-columns: 1fr auto; } .hdr-row input[data-h="value"] { grid-column: 1 / -1; } }

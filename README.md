@@ -100,6 +100,18 @@ MorpheusAI bir **ajandır**: kurumsal GPT + araçlarla çok adımlı çalışır
 
 Kurulum ve mimari: [`mcp/README.md`](mcp/README.md) · Arayüz: **Ajan & MCP**
 
+**Uzak MCP bağlantısı ekleme** (Ajan & MCP → Bağlı MCP sunucuları → *Bağlantı ekle*): tip `http` (Streamable HTTP) veya `sse`
+(eski HTTP+SSE), adres, ve sunucunun beklediği **header'lar** elle girilir; Bearer zorunlu değildir. Örnek Bitbucket MCP:
+
+```json
+{ "Bitbucket MCP": { "url": "https://mcp-gateway…/bitbucket-mcp/mcp", "type": "http",
+  "headers": { "x-pat-token": "${BITBUCKET_PAT}", "x-user-name": "kullanici.adi" } } }
+```
+
+Bu JSON pencerede *JSON yapılandırmasından doldur* ile yapıştırılabilir. `${BITBUCKET_PAT}` gibi değerler çalışma anında
+MorpheusAI'nin ortamından (`.env` / systemd) okunur, token `data/mcp.json`'a yazılmaz; düz girilen gizli değerler arayüzde ve
+loglarda maskelenir.
+
 ## LDAP ile giriş
 
 `.env`'de üç değer yeterli; `LDAP_SERVER` dolunca uygulamaya giriş zorunlu olur (Active Directory / OpenLDAP):

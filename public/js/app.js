@@ -1468,34 +1468,102 @@ function showNewToken(t) {
   $("#cpCfg").onclick = () => copyText(cfg);
 }
 
+const CONN_TYPES = { http: "http — Streamable HTTP", sse: "sse — HTTP + SSE (eski)" };
+const SECRET_HDR = /token|key|secret|pass|auth|cookie|pat$/i;
+const connSlug = (s) => String(s || "").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^[^a-z]+|-+$/g, "").slice(0, 31);
+
 function renderConns(list) {
   State.mcpConns = list;
-  $("#mcpConns").innerHTML = `<tr><th>Ad</th><th>Adres</th><th>Durum</th><th></th></tr>` +
+  $("#mcpConns").innerHTML = `<tr><th>Ad</th><th>Adres</th><th>Kimlik</th><th>Durum</th><th></th></tr>` +
     (list.map((c) => `<tr class="${c.enabled ? "" : "row-off"}"><td class="t-name">${esc(c.name)}${c.description ? `<div class="t-sub">${esc(c.description)}</div>` : ""}</td>
-      <td class="mono t-sub">${esc(c.url)}</td>
+      <td class="mono t-sub"><span class="label">${esc(c.type || "http")}</span> ${esc(c.url)}</td>
+      <td class="t-sub">${[c.token ? "Bearer" : "", ...(c.headers || []).map((h) => `<code>${esc(h.name)}</code>`)].filter(Boolean).join(" ") || "—"}</td>
       <td>${c.lastTest ? `<span class="${c.lastTest.ok ? "status-ok" : "status-err"}" title="${esc(c.lastTest.error || "")}">${c.lastTest.ok ? `✓ ${c.lastTest.tools} araç` : "✕ hata"}</span><div class="t-sub">${esc(c.lastTest.server?.name || "")} ${esc(ago(c.lastTest.at))}</div>` : `<span class="muted sm">test edilmedi</span>`}</td>
       <td class="row-actions"><button class="btn link sm" data-conn-test="${esc(c.id)}">Test</button><button class="btn link sm" data-conn-edit="${esc(c.id)}">Düzenle</button><button class="btn link sm danger" data-conn-del="${esc(c.id)}">Sil</button></td></tr>`).join("") ||
-      `<tr><td colspan="4" class="muted">Bağlantı yok. Örn. UnixAI OS: <code>http://unixai:3000/mcp</code> + UnixAI'de üretilen token.</td></tr>`);
+      `<tr><td colspan="5" class="muted">Bağlantı yok. Örn. Trinity: <code>http://trinity:3000/mcp</code> + Bearer token; Bitbucket MCP: <code>x-pat-token</code> / <code>x-user-name</code> header'ları.</td></tr>`);
+}
+
+const hdrRow = (h = {}) => `<div class="hdr-row">
+  <input class="input mono sm" data-h="name" value="${esc(h.name || "")}" placeholder="x-pat-token" spellcheck="false" />
+  <input class="input mono sm" data-h="value" type="${h.secret ? "password" : "text"}" value="${esc(h.value || "")}" placeholder="değer veya \${BITBUCKET_PAT}" autocomplete="new-password" spellcheck="false" />
+  <label class="check sm" title="Değer arayüzde ve loglarda maskelenir"><input type="checkbox" data-h="secret" ${h.secret ? "checked" : ""} /> gizli</label>
+  <button type="button" class="icon-btn" data-h-del title="Kaldır">✕</button></div>`;
+
+/** {"Bitbucket MCP": {url, type, headers}} | {mcpServers: {...}} | {url, type, headers} → form */
+function parseConnJson(text) {
+  let j = JSON.parse(text);
+  if (j.mcpServers || j.servers) j = j.mcpServers || j.servers;
+  let name = "";
+  if (!j.url) {
+    const [k, v] = Object.entries(j).find(([, v]) => v && typeof v === "object" && v.url) || [];
+    if (!v) throw new Error("JSON'da url alanı olan bir MCP sunucusu bulunamadı");
+    name = k;
+    j = v;
+  }
+  const type = String(j.type || j.transport || "http").toLowerCase().replace("streamable-http", "http").replace("streamablehttp", "http");
+  const headers = Object.entries(j.headers || {}).map(([n, v]) => ({ name: n, value: String(v), secret: SECRET_HDR.test(n) && !/^\$\{\w+\}$/.test(String(v)) }));
+  return { name: connSlug(name || j.name), url: j.url, type: CONN_TYPES[type] ? type : "http", headers, description: name };
 }
 
 function connModal(id) {
-  const c = (State.mcpConns || []).find((x) => x.id === id) || { enabled: true };
+  const c = (State.mcpConns || []).find((x) => x.id === id) || { enabled: true, type: "http", headers: [] };
   modal(id ? `Bağlantı · ${c.name}` : "MCP bağlantısı ekle", `<form id="connF" class="form">
+    <details class="conn-json"><summary>JSON yapılandırmasından doldur</summary>
+      <textarea class="input mono" id="connJson" rows="7" spellcheck="false" placeholder='{ "Bitbucket MCP": { "url": "https://…/bitbucket-mcp/mcp", "type": "http",
+    "headers": { "x-pat-token": "\${BITBUCKET_PAT}", "x-user-name": "kullanici" } } }'></textarea>
+      <div class="toolbar"><button type="button" class="btn sm" id="connJsonApply">Forma aktar</button><span class="muted sm" id="connJsonOut"></span></div>
+    </details>
     <div class="grid-2">
-      <label>Ad<input class="input" name="name" value="${esc(c.name || "")}" placeholder="unixai" required /><small>Küçük harf; araçlar <code>ad__araç</code> olur.</small></label>
-      <label>MCP adresi<input class="input mono" name="url" value="${esc(c.url || "")}" placeholder="http://unixai.kurum.local:3000/mcp" required /></label>
+      <label>Ad<input class="input" name="name" value="${esc(c.name || "")}" placeholder="bitbucket" required /><small>Küçük harf; araçlar <code>ad__araç</code> olur.</small></label>
+      <label>Tip<select class="input" name="type">${Object.entries(CONN_TYPES).map(([k, l]) => `<option value="${k}" ${(c.type || "http") === k ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
+        <small>Çoğu güncel sunucu <code>http</code> (tek POST adresi). <code>sse</code>: GET akışı + ayrı mesaj adresi.</small></label>
     </div>
-    <label>Token (Bearer)<input class="input mono" name="token" type="password" value="${esc(c.token || "")}" autocomplete="new-password" /><small>Karşı uygulamada üretilen MCP erişim token'ı.</small></label>
-    <label>Açıklama<input class="input" name="description" value="${esc(c.description || "")}" placeholder="RHEL sunucu gözlem ajanı" /></label>
+    <label>MCP adresi<input class="input mono" name="url" value="${esc(c.url || "")}" placeholder="https://mcp-gateway.kurum.local/bitbucket-mcp/mcp" required /></label>
+    <div class="sub-h">Header'lar</div>
+    <div id="connHeaders">${(c.headers || []).map(hdrRow).join("")}</div>
+    <div class="toolbar"><button type="button" class="btn sm" id="connHdrAdd">+ Header ekle</button></div>
+    <small class="muted">Sunucunun beklediği kimlik header'larını girin (ör. <code>x-pat-token</code>, <code>x-user-name</code>). Değer yerine <code>\${ORTAM_DEGISKENI}</code>
+      yazarsanız MorpheusAI'nin ortamından (.env / systemd) okunur; token dosyada saklanmaz. Gizli değerler arayüzde ve loglarda maskelenir.</small>
+    <label>Bearer token (opsiyonel)<input class="input mono" name="token" type="password" value="${esc(c.token || "")}" autocomplete="new-password" />
+      <small>Yalnızca <code>Authorization: Bearer</code> bekleyen sunucular için (ör. Trinity). Header kullanıyorsanız boş bırakın.</small></label>
+    <label>Açıklama<input class="input" name="description" value="${esc(c.description || "")}" placeholder="Bitbucket depoları ve PR'lar" /></label>
     <label class="check"><input type="checkbox" name="enabled" ${c.enabled !== false ? "checked" : ""} /> Etkin (araçları ajana açık)</label>
     <label class="check"><input type="checkbox" name="insecureTls" ${c.insecureTls ? "checked" : ""} /> Sertifika doğrulamasını kapat</label>
     <div id="connOut"></div>
-    <div class="toolbar end"><button class="btn primary" type="submit">Kaydet ve test et</button></div></form>`);
+    <div class="toolbar end"><button class="btn primary" type="submit">Kaydet ve test et</button></div></form>`, { wide: true });
+  const box = $("#connHeaders");
+  $("#connHdrAdd").onclick = () => { box.insertAdjacentHTML("beforeend", hdrRow()); box.lastElementChild.querySelector("input").focus(); };
+  box.onclick = (e) => { if (e.target.closest("[data-h-del]")) e.target.closest(".hdr-row").remove(); };
+  box.onchange = (e) => {
+    const row = e.target.closest(".hdr-row");
+    if (e.target.dataset.h === "secret") row.querySelector('[data-h="value"]').type = e.target.checked ? "password" : "text";
+    if (e.target.dataset.h === "name" && SECRET_HDR.test(e.target.value) && !row.dataset.touched) {
+      row.querySelector('[data-h="secret"]').checked = true;
+      row.querySelector('[data-h="value"]').type = "password";
+    }
+  };
+  box.addEventListener("click", (e) => { if (e.target.dataset.h === "secret") e.target.closest(".hdr-row").dataset.touched = "1"; });
+  $("#connJsonApply").onclick = () => {
+    try {
+      const p = parseConnJson($("#connJson").value);
+      const f = $("#connF").elements;
+      if (p.name) f.name.value = p.name;
+      f.url.value = p.url;
+      f.type.value = p.type;
+      if (p.description && !f.description.value) f.description.value = p.description;
+      box.innerHTML = p.headers.map(hdrRow).join("");
+      $("#connJsonOut").innerHTML = `<span class="status-ok">✓ ${p.headers.length} header aktarıldı</span> — gizli değerleri kontrol edip kaydedin.`;
+    } catch (err) { $("#connJsonOut").innerHTML = `<span class="status-err">${esc(err.message)}</span>`; }
+  };
   $("#connF").onsubmit = async (e) => {
     e.preventDefault();
     const out = $("#connOut");
+    const headers = [...box.querySelectorAll(".hdr-row")].map((r) => ({ name: r.querySelector('[data-h="name"]').value.trim(),
+      value: r.querySelector('[data-h="value"]').value, secret: r.querySelector('[data-h="secret"]').checked })).filter((h) => h.name || h.value);
+    const form = readForm(e.target);
     try {
-      const saved = await Api.saveMcpConnection({ ...readForm(e.target), id: c.id });
+      const saved = await Api.saveMcpConnection({ ...form, name: connSlug(form.name) || form.name, headers, id: c.id });
+      c.id = saved.id;
       out.innerHTML = loadingView("Bağlanılıyor…");
       const t = await Api.testMcpConnection(saved.id);
       out.innerHTML = t.ok ? `<div class="alert info"><b class="status-ok">✓ ${esc(t.server?.serverInfo?.title || t.server?.serverInfo?.name || "")}</b> — ${t.tools.length} araç: ${t.tools.map((x) => `<code>${esc(x.name)}</code>`).join(" ")}</div>`

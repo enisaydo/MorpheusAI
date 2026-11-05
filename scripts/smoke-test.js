@@ -872,10 +872,52 @@ async function scmSuite() {
 /* ------------------------------------------------------------------ */
 /*  Barındırılan MCP sunucusu (/mcp)                                   */
 /* ------------------------------------------------------------------ */
+/** Sahte uzak MCP sunucuları: Bitbucket MCP gibi özel header isteyen Streamable HTTP + eski HTTP+SSE */
+function fakeRemoteMcp() {
+  const seen = { http: [], sse: [] };
+  const answer = (m) => m.method === "initialize" ? { jsonrpc: "2.0", id: m.id, result: { protocolVersion: "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "bitbucket-mcp" } } }
+    : m.method === "tools/list" ? { jsonrpc: "2.0", id: m.id, result: { tools: [{ name: "list_repositories", description: "Depolar", inputSchema: { type: "object", properties: {} } }] } }
+      : m.method === "tools/call" ? { jsonrpc: "2.0", id: m.id, result: { content: [{ type: "text", text: `repo-a, repo-b (${m.params.name})` }] } }
+        : { jsonrpc: "2.0", id: m.id, result: {} };
+  const read = (req) => new Promise((r) => { let b = ""; req.on("data", (c) => (b += c)); req.on("end", () => r(b ? JSON.parse(b) : {})); });
+  let stream = null;
+  const srv = http.createServer(async (req, res) => {
+    const u = new URL(req.url, "http://x");
+    if (u.pathname === "/bitbucket-mcp/mcp" && req.method === "POST") {
+      seen.http.push({ ...req.headers });
+      if (req.headers["x-pat-token"] !== "pat-secret-123456" || req.headers["x-user-name"] !== "enis") { res.writeHead(401); return res.end("bad pat"); }
+      const m = await read(req);
+      if (m.id === undefined) { res.writeHead(202); return res.end(); }
+      res.writeHead(200, { "content-type": "text/event-stream", "mcp-session-id": "s-1" });
+      return res.end(`event: message\ndata: ${JSON.stringify(answer(m))}\n\n`);
+    }
+    if (u.pathname === "/sse" && req.method === "GET") {
+      seen.sse.push({ ...req.headers });
+      if (req.headers["x-pat-token"] !== "sse-pat-999999") { res.writeHead(403); return res.end(); }
+      res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
+      res.write("event: endpoint\ndata: /messages?sessionId=abc\n\n");
+      stream = res;
+      return;
+    }
+    if (u.pathname === "/messages" && req.method === "POST") {
+      const m = await read(req);
+      res.writeHead(202);
+      res.end("Accepted");
+      if (m.id !== undefined && stream) setTimeout(() => stream.write(`event: message\ndata: ${JSON.stringify(answer(m))}\n\n`), 20);
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  return { srv, seen, close: () => { try { stream?.end(); } catch {} srv.close(); } };
+}
+
 async function mcpHostSuite() {
   console.log("\n[Barındırılan MCP — /mcp]");
   const base = "http://127.0.0.1:3981";
-  const srv = startServer(3981, { MORPHEUS_MODE: "demo", MORPHEUS_API_TOKEN: "" });
+  const srv = startServer(3981, { MORPHEUS_MODE: "demo", MORPHEUS_API_TOKEN: "", BITBUCKET_PAT: "pat-secret-123456" });
+  const remote = fakeRemoteMcp();
+  await new Promise((r) => remote.srv.listen(3982, "127.0.0.1", r));
   const mcp = async (msg, token, origin) => {
     const r = await fetch(`${base}/mcp`, { method: "POST", body: JSON.stringify(msg),
       headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...(token ? { authorization: `Bearer ${token}` } : {}), ...(origin ? { origin } : {}) } });
@@ -908,8 +950,42 @@ async function mcpHostSuite() {
     const conn = await postJson(base, "/api/mcp/connections", { name: "kendisi", url: `${base}/mcp`, token: full });
     const t = await postJson(base, `/api/mcp/connections/${conn.id}/test`, {});
     assert(conn.token === "••••••••" && t.ok && t.tools.some((x) => x.name === "morpheus_list_standards"), "MCP istemcisi uzak sunucuya bağlandı (araçlar listelendi)");
+
+    // ---- özel header'lı bağlantı (Bitbucket MCP: x-pat-token / x-user-name, type http) ----
+    const rurl = "http://127.0.0.1:3982";
+    const bb = await postJson(base, "/api/mcp/connections", { name: "bitbucket", type: "http", url: `${rurl}/bitbucket-mcp/mcp`,
+      headers: [{ name: "x-pat-token", value: "${BITBUCKET_PAT}" }, { name: "x-user-name", value: "enis" }] });
+    assert(bb.type === "http" && bb.headers[0].secret && bb.headers[0].value === "${BITBUCKET_PAT}" && !bb.headers[1].secret,
+      "header'lar kaydedildi: x-pat-token gizli işaretlendi, ${VAR} başvurusu olduğu gibi gösterilir");
+    const bt = await postJson(base, `/api/mcp/connections/${bb.id}/test`, {});
+    const sent = remote.seen.http.at(-1) || {};
+    assert(bt.ok && bt.tools[0].name === "list_repositories" && sent["x-pat-token"] === "pat-secret-123456" && sent["x-user-name"] === "enis" && !sent.authorization,
+      `x-pat-token ortamdan çözülüp gönderildi, Bearer gönderilmedi ${bt.error || ""}`);
+    assert(sent["mcp-protocol-version"] && remote.seen.http.some((h) => h["mcp-session-id"] === "s-1"), "Streamable HTTP oturum ve protokol header'ları");
+    const bb2 = await postJson(base, "/api/mcp/connections", { ...bb, headers: [{ name: "x-pat-token", value: "pat-secret-123456", secret: true }, { name: "x-user-name", value: "enis" }] });
+    assert(bb2.headers[0].value === "••••••••", "düz yazılan gizli değer arayüze maskeli döner");
+    const bb3 = await postJson(base, "/api/mcp/connections", { ...bb2 });
+    assert((await postJson(base, `/api/mcp/connections/${bb3.id}/test`, {})).ok, "maske ile yeniden kayıt eski değeri korur");
+    const mlogs = await (await fetch(`${base}/api/logs?service=mcp`)).json();
+    const ml = await (await fetch(`${base}/api/logs/${mlogs.find((l) => /bitbucket/.test(l.kind)).id}`)).json();
+    assert(!JSON.stringify(ml).includes("pat-secret-123456") && ml.request.headers["x-user-name"] === "enis", "loglarda x-pat-token maskelendi");
+    const bad = await postJson(base, "/api/mcp/connections", { name: "kotu", url: rurl, headers: [{ name: "Content-Type", value: "x" }] });
+    assert(/yönetilir/.test(bad.error || ""), "MCP'nin yönettiği header (Content-Type) eklenemez");
+    const bad2 = await postJson(base, "/api/mcp/connections", { name: "kotu", url: rurl, type: "ws" });
+    assert(/desteklenmiyor/.test(bad2.error || ""), "bilinmeyen bağlantı tipi reddedildi");
+    const noenv = await postJson(base, "/api/mcp/connections", { name: "eksik", url: `${rurl}/bitbucket-mcp/mcp`, headers: [{ name: "x-pat-token", value: "${YOK_BOYLE_DEGISKEN}" }] });
+    const nt = await postJson(base, `/api/mcp/connections/${noenv.id}/test`, {});
+    assert(!nt.ok && /YOK_BOYLE_DEGISKEN.*tanımlı değil/.test(nt.error), "tanımsız ortam değişkeni anlaşılır hata verir");
+
+    // ---- eski HTTP+SSE taşıması ----
+    const sc = await postJson(base, "/api/mcp/connections", { name: "eski-sse", type: "sse", url: `${rurl}/sse`, headers: [{ name: "x-pat-token", value: "sse-pat-999999" }] });
+    const st = await postJson(base, `/api/mcp/connections/${sc.id}/test`, {});
+    assert(st.ok && st.tools[0].name === "list_repositories" && remote.seen.sse.at(-1)["x-pat-token"] === "sse-pat-999999", `SSE: akış açıldı, endpoint'e POST, cevap akıştan geldi ${st.error || ""}`);
+    const list = await (await fetch(`${base}/api/mcp/connections`)).json();
+    assert(list.find((c) => c.name === "eski-sse").headers[0].value === "••••••••" && list.find((c) => c.name === "kendisi").type === "http", "liste: tip ve maskeli header'lar");
   } finally {
     srv.kill();
+    remote.close();
   }
 }
 
